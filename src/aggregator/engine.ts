@@ -39,6 +39,7 @@ export class AggregatorEngine implements IAggregatorEngine {
     // Separate successful connections from failures
     const upstreamHandles = new Map<string, IUpstreamHandle>();
     const upstreamStatuses = new Map<string, 'connected' | 'error' | 'skipped'>();
+    const failures: string[] = [];
 
     for (const [alias, result] of connectionResults) {
       if (result.status === 'connected' && result.handle) {
@@ -46,8 +47,25 @@ export class AggregatorEngine implements IAggregatorEngine {
         upstreamStatuses.set(alias, 'connected');
       } else {
         upstreamStatuses.set(alias, result.status);
+        failures.push(alias);
         console.error(`[${sessionId}] Failed to connect to upstream "${alias}": ${result.error}`);
       }
+    }
+
+    // Fail if zero upstreams connected
+    if (upstreamHandles.size === 0) {
+      throw new Error(
+        `Failed to create session: All upstreams failed to connect (${failures.join(', ')})`
+      );
+    }
+
+    // Warn on partial failures
+    if (failures.length > 0) {
+      console.warn(
+        `[${sessionId}] Warning: Partial upstream connection failure. ` +
+        `Connected: ${upstreamHandles.size}/${connectionResults.size}. ` +
+        `Failed: ${failures.join(', ')}`
+      );
     }
 
     // Create session context
@@ -109,7 +127,7 @@ export class AggregatorEngine implements IAggregatorEngine {
     }
 
     // Fetch tools from all connected upstreams in parallel
-    const toolPromises: Promise<{ alias: string; tools: ToolDescriptor[] }>[] = [];
+    const toolPromises: Promise<{ alias: string; tools: ToolDescriptor[]; error?: Error }>[] = [];
 
     for (const [alias, handle] of session.upstreamHandles) {
       toolPromises.push(
@@ -117,13 +135,22 @@ export class AggregatorEngine implements IAggregatorEngine {
           .listTools()
           .then((tools) => ({ alias, tools }))
           .catch((error) => {
-            console.error(`[${sessionId}] Error listing tools from "${alias}": ${error}`);
-            return { alias, tools: [] };
+            return { alias, tools: [], error };
           })
       );
     }
 
     const results = await Promise.all(toolPromises);
+
+    // Track failures
+    const failures = results.filter((r) => r.error);
+    if (failures.length > 0) {
+      const failedAliases = failures.map((f) => f.alias).join(', ');
+      if (failures.length === session.upstreamHandles.size) {
+        throw new Error(`All upstreams failed to list tools: ${failedAliases}`);
+      }
+      console.warn(`[${sessionId}] Warning: Failed to list tools from upstreams: ${failedAliases}`);
+    }
 
     // Namespace and merge all tools
     const allTools: ToolDescriptor[] = [];
@@ -150,7 +177,7 @@ export class AggregatorEngine implements IAggregatorEngine {
     }
 
     // Fetch resources from all connected upstreams in parallel
-    const resourcePromises: Promise<{ alias: string; resources: ResourceDescriptor[] }>[] = [];
+    const resourcePromises: Promise<{ alias: string; resources: ResourceDescriptor[]; error?: Error }>[] = [];
 
     for (const [alias, handle] of session.upstreamHandles) {
       resourcePromises.push(
@@ -158,13 +185,22 @@ export class AggregatorEngine implements IAggregatorEngine {
           .listResources()
           .then((resources) => ({ alias, resources }))
           .catch((error) => {
-            console.error(`[${sessionId}] Error listing resources from "${alias}": ${error}`);
-            return { alias, resources: [] };
+            return { alias, resources: [], error };
           })
       );
     }
 
     const results = await Promise.all(resourcePromises);
+
+    // Track failures
+    const failures = results.filter((r) => r.error);
+    if (failures.length > 0) {
+      const failedAliases = failures.map((f) => f.alias).join(', ');
+      if (failures.length === session.upstreamHandles.size) {
+        throw new Error(`All upstreams failed to list resources: ${failedAliases}`);
+      }
+      console.warn(`[${sessionId}] Warning: Failed to list resources from upstreams: ${failedAliases}`);
+    }
 
     // Namespace and merge all resources
     const allResources: ResourceDescriptor[] = [];
@@ -188,7 +224,7 @@ export class AggregatorEngine implements IAggregatorEngine {
     }
 
     // Fetch prompts from all connected upstreams in parallel
-    const promptPromises: Promise<{ alias: string; prompts: PromptDescriptor[] }>[] = [];
+    const promptPromises: Promise<{ alias: string; prompts: PromptDescriptor[]; error?: Error }>[] = [];
 
     for (const [alias, handle] of session.upstreamHandles) {
       promptPromises.push(
@@ -196,13 +232,22 @@ export class AggregatorEngine implements IAggregatorEngine {
           .listPrompts()
           .then((prompts) => ({ alias, prompts }))
           .catch((error) => {
-            console.error(`[${sessionId}] Error listing prompts from "${alias}": ${error}`);
-            return { alias, prompts: [] };
+            return { alias, prompts: [], error };
           })
       );
     }
 
     const results = await Promise.all(promptPromises);
+
+    // Track failures
+    const failures = results.filter((r) => r.error);
+    if (failures.length > 0) {
+      const failedAliases = failures.map((f) => f.alias).join(', ');
+      if (failures.length === session.upstreamHandles.size) {
+        throw new Error(`All upstreams failed to list prompts: ${failedAliases}`);
+      }
+      console.warn(`[${sessionId}] Warning: Failed to list prompts from upstreams: ${failedAliases}`);
+    }
 
     // Namespace and merge all prompts
     const allPrompts: PromptDescriptor[] = [];

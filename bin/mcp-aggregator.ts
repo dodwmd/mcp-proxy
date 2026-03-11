@@ -48,7 +48,7 @@ program
 
       // Run migrations
       console.log('Running database migrations...');
-      await runMigrations(dbPath);
+      await runMigrations({ dbPath });
 
       // Initialize config store
       const store = new SqliteConfigStore(db);
@@ -95,8 +95,8 @@ program
       // Create StreamableHTTP transport
       const transport = createStreamableHttpTransport();
 
-      // Create HTTP server
-      const app = createHttpServer({
+      // Create HTTP server (connects MCP server to transport)
+      const app = await createHttpServer({
         port,
         bind: options.bind,
         mcpServer,
@@ -171,7 +171,7 @@ program
 
       console.log(`Running migrations on: ${dbPath}`);
 
-      await runMigrations(dbPath);
+      await runMigrations({ dbPath });
 
       console.log('✓ Migrations completed successfully');
       process.exit(0);

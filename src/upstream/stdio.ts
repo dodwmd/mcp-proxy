@@ -1,4 +1,3 @@
-import { spawn, type ChildProcess } from 'node:child_process';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { IUpstreamHandle } from './types.js';
@@ -17,7 +16,6 @@ export class StdioUpstream implements IUpstreamHandle {
   private readonly config: ResolvedServerConfig;
   private client: Client | null = null;
   private transport: StdioClientTransport | null = null;
-  private process: ChildProcess | null = null;
   private initialized = false;
   private closed = false;
 
@@ -39,7 +37,6 @@ export class StdioUpstream implements IUpstreamHandle {
       throw new Error(`Upstream ${this.alias} is closed`);
     }
 
-    // Spawn child process
     const command = this.config.command!;
     const args = this.config.args || [];
     // Filter out undefined values from env to satisfy Record<string, string> type
@@ -49,25 +46,7 @@ export class StdioUpstream implements IUpstreamHandle {
       )
     ) as Record<string, string>;
 
-    this.process = spawn(command, args, {
-      env,
-      stdio: ['pipe', 'pipe', 'pipe'], // stdin, stdout, stderr
-    });
-
-    // Handle process errors
-    this.process.on('error', (err) => {
-      console.error(`[${this.alias}] Process error:`, err);
-    });
-
-    this.process.stderr?.on('data', (data) => {
-      console.error(`[${this.alias}] stderr: ${data}`);
-    });
-
-    if (!this.process.stdout || !this.process.stdin) {
-      throw new Error(`Failed to spawn process for ${this.alias}`);
-    }
-
-    // Create MCP transport and client
+    // Create MCP transport (it will spawn the process internally)
     this.transport = new StdioClientTransport({
       command,
       args,
@@ -84,7 +63,7 @@ export class StdioUpstream implements IUpstreamHandle {
       }
     );
 
-    // Connect client to transport
+    // Connect client to transport (this spawns the process)
     await this.client.connect(this.transport);
 
     this.initialized = true;
@@ -92,11 +71,6 @@ export class StdioUpstream implements IUpstreamHandle {
 
   async ping(): Promise<boolean> {
     if (!this.initialized || this.closed) {
-      return false;
-    }
-
-    // Check if process is still running
-    if (this.process && this.process.exitCode !== null) {
       return false;
     }
 
@@ -117,7 +91,7 @@ export class StdioUpstream implements IUpstreamHandle {
     this.closed = true;
     this.initialized = false;
 
-    // Close MCP client and transport
+    // Close MCP client (which will close the transport and kill the process)
     if (this.client) {
       try {
         await this.client.close();
@@ -125,20 +99,6 @@ export class StdioUpstream implements IUpstreamHandle {
         console.error(`[${this.alias}] Error closing client:`, err);
       }
       this.client = null;
-    }
-
-    // Kill child process
-    if (this.process) {
-      this.process.kill('SIGTERM');
-
-      // Force kill after timeout
-      setTimeout(() => {
-        if (this.process && this.process.exitCode === null) {
-          this.process.kill('SIGKILL');
-        }
-      }, 5000);
-
-      this.process = null;
     }
 
     this.transport = null;

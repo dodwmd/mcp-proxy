@@ -18,7 +18,7 @@ export interface HttpServerOptions {
  * - POST /mcp - MCP Streamable HTTP endpoint
  * - GET /health - Health check endpoint
  */
-export function createHttpServer(options: HttpServerOptions): Express {
+export async function createHttpServer(options: HttpServerOptions): Promise<Express> {
   const { bind, mcpServer, transport } = options;
 
   // Create Express app with MCP defaults
@@ -65,10 +65,13 @@ export function createHttpServer(options: HttpServerOptions): Express {
     }
   });
 
-  // Connect server to transport
-  mcpServer.connect(transport).catch((err) => {
-    console.error('Failed to connect MCP server to transport:', err);
-  });
+  // Connect server to transport - this must succeed for the server to work
+  try {
+    await mcpServer.connect(transport);
+  } catch (err) {
+    console.error('FATAL: Failed to connect MCP server to transport:', err);
+    throw new Error(`Failed to connect MCP server to transport: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   return app;
 }
