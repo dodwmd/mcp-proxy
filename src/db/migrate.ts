@@ -75,7 +75,6 @@ async function checkPendingMigrations(
   if (!tableExists) {
     // No migrations table = fresh database, count all migration files
     const fs = await import('node:fs/promises');
-    const path = await import('node:path');
 
     try {
       const files = await fs.readdir(migrationsFolder);

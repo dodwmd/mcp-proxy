@@ -23,6 +23,9 @@ importers:
       drizzle-orm:
         specifier: ^0.38.3
         version: 0.38.4(@types/better-sqlite3@7.6.13)(better-sqlite3@11.10.0)
+      express:
+        specifier: ^5.2.1
+        version: 5.2.1
       yaml:
         specifier: ^2.6.1
         version: 2.8.2

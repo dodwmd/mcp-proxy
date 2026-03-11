@@ -4,7 +4,7 @@
  * Logs warnings for unresolved variables without defaults.
  */
 export function resolveEnvVars(template: string): string {
-  return template.replace(/\$\{([^}:]+)(?::-([^}]*))?\}/g, (match, varName, defaultValue) => {
+  return template.replace(/\$\{([^}:]+)(?::-([^}]*))?\}/g, (_match, varName, defaultValue) => {
     const value = process.env[varName];
 
     if (value !== undefined) {

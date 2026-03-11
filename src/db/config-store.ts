@@ -185,7 +185,7 @@ export class SqliteConfigStore implements IConfigStore {
     }
   }
 
-  private async syncGuilds(config: ResolvedConfig, defaultGuildId: string): Promise<void> {
+  private async syncGuilds(config: ResolvedConfig, _defaultGuildId: string): Promise<void> {
     const now = new Date().toISOString();
     const yamlGuildSlugs = config.guilds.map((g) => g.slug);
 

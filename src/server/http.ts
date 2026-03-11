@@ -1,5 +1,5 @@
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
-import type { Express, Request, Response, NextFunction } from 'express';
+import type { Express, Request, Response } from 'express';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -25,7 +25,7 @@ export function createHttpServer(options: HttpServerOptions): Express {
   const app = createMcpExpressApp({ host: bind });
 
   // Health check endpoint
-  app.get('/health', (req: Request, res: Response) => {
+  app.get('/health', (_req: Request, res: Response) => {
     res.json({
       status: 'ok',
       version: '0.1.0',

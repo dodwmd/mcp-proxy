@@ -267,7 +267,7 @@ export class AggregatorEngine implements IAggregatorEngine {
       throw new Error(`Invalid namespaced resource URI format: ${namespacedUri}`);
     }
 
-    const { alias, uri } = parsed;
+    const { alias, uri: _uri } = parsed;
 
     // Find upstream handle
     const handle = session.upstreamHandles.get(alias);
@@ -283,7 +283,7 @@ export class AggregatorEngine implements IAggregatorEngine {
   async getPrompt(
     sessionId: string,
     namespacedName: string,
-    args?: Record<string, unknown>
+    _args?: Record<string, unknown>
   ): Promise<unknown> {
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -300,7 +300,7 @@ export class AggregatorEngine implements IAggregatorEngine {
       throw new Error(`Invalid namespaced prompt name format: ${namespacedName}`);
     }
 
-    const { alias, name } = parsed;
+    const { alias, name: _name } = parsed;
 
     // Find upstream handle
     const handle = session.upstreamHandles.get(alias);
