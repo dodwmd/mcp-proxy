@@ -117,19 +117,27 @@ export class YamlConfigLoader implements IConfigLoader {
   private buildResolvedConfig(raw: RawYamlConfig): ResolvedConfig {
     const errors: string[] = [];
 
+    // Coerce numeric fields (env vars come back as strings)
+    const port = typeof raw.port === 'string' ? parseInt(raw.port, 10) : raw.port ?? 4000;
+    const apiPort = typeof raw.apiPort === 'string' ? parseInt(raw.apiPort, 10) : raw.apiPort;
+    const toolWarnThreshold = typeof raw.toolWarnThreshold === 'string' ? parseInt(raw.toolWarnThreshold, 10) : raw.toolWarnThreshold ?? 100;
+    const upstreamConcurrency = typeof raw.upstreamConcurrency === 'string' ? parseInt(raw.upstreamConcurrency, 10) : raw.upstreamConcurrency ?? 10;
+    const reloadDebounceMs = typeof raw.reloadDebounceMs === 'string' ? parseInt(raw.reloadDebounceMs, 10) : raw.reloadDebounceMs ?? 300;
+    const httpKeepaliveMs = typeof raw.httpKeepaliveMs === 'string' ? parseInt(raw.httpKeepaliveMs, 10) : raw.httpKeepaliveMs ?? 60000;
+
     // Build runtime config with defaults
     const runtime: RuntimeConfig = {
-      port: raw.port ?? 4000,
-      apiPort: raw.apiPort,
-      publicUrl: raw.publicUrl ?? `http://localhost:${raw.port ?? 4000}`,
+      port,
+      apiPort,
+      publicUrl: raw.publicUrl ?? `http://localhost:${port}`,
       bindAddress: raw.bind ?? '0.0.0.0',
       home: raw.home ?? `${process.env.HOME}/.mcp-aggregator`,
       dbPath: `${raw.home ?? process.env.HOME + '/.mcp-aggregator'}/db.sqlite`,
       migrationPrompt: (raw.migrationPrompt as 'never' | 'always' | 'interactive') ?? 'interactive',
-      toolWarnThreshold: raw.toolWarnThreshold ?? 100,
-      upstreamConcurrency: raw.upstreamConcurrency ?? 10,
-      reloadDebounceMs: raw.reloadDebounceMs ?? 300,
-      httpKeepaliveMs: raw.httpKeepaliveMs ?? 60000,
+      toolWarnThreshold,
+      upstreamConcurrency,
+      reloadDebounceMs,
+      httpKeepaliveMs,
       disableGuildHints: raw.disableGuildHints ?? false,
       disableGuildEndpoints: raw.disableGuildEndpoints ?? false,
       allowPrivateUrls: raw.allowPrivateUrls ?? false,
@@ -152,13 +160,17 @@ export class YamlConfigLoader implements IConfigLoader {
 
       aliases.add(rawServer.alias);
 
+      const timeoutMs = typeof rawServer.timeout_ms === 'string'
+        ? parseInt(rawServer.timeout_ms, 10)
+        : rawServer.timeout_ms ?? 30000;
+
       servers.push({
         id: randomUUID(),
         alias: rawServer.alias,
         name: rawServer.name,
         transport: rawServer.transport as 'stdio' | 'streamablehttp' | 'sse',
         enabled: rawServer.enabled ?? true,
-        timeoutMs: rawServer.timeout_ms ?? 30000,
+        timeoutMs,
         command: rawServer.command,
         args: rawServer.args,
         env: rawServer.env,
