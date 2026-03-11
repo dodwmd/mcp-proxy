@@ -1,0 +1,6 @@
+dist
+node_modules
+coverage
+.changeset/*.md
+!.changeset/README.md
+pnpm-lock.yaml

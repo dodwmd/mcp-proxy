@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  mcp-aggregator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./mcp.yaml:/app/mcp.yaml:ro
+      - mcp-data:/data
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+
+volumes:
+  mcp-data:

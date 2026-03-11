@@ -1,0 +1,52 @@
+{
+  "name": "mcp-aggregator",
+  "version": "0.0.0",
+  "description": "MCP (Model Context Protocol) aggregator proxy",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . && prettier --check .",
+    "lint:fix": "eslint . --fix && prettier --write .",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "prepare": "husky || true"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "drizzle-orm": "^0.36.0"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "drizzle-kit": "^0.28.0",
+    "eslint": "^9.0.0",
+    "husky": "^9.0.0",
+    "prettier": "^3.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "proxy",
+    "aggregator"
+  ],
+  "author": "",
+  "license": "MIT"
+}

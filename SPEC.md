@@ -7,6 +7,7 @@ MCP servers are configured statically in agent config files. Adding a new MCP to
 Additionally, different agents need different tool sets — a QA bot shouldn't have access to deployment tools; a DevOps bot shouldn't have access to design tools. Today there's no easy way to manage this without maintaining N separate MCP configs.
 
 **Goals:**
+
 1. Each agent has a single, stable MCP URL that never changes
 2. Operators manage MCP server assignments at runtime via a web UI — no agent restarts or config edits required
 3. Agents can be grouped into **guilds** — named bundles of MCP servers — so assigning a role to an agent gives it the right tools automatically
@@ -19,15 +20,19 @@ Additionally, different agents need different tool sets — a QA bot shouldn't h
 ## 2. Core Concepts
 
 ### Upstream MCP Server
+
 An external MCP server the aggregator connects to (e.g. GitHub tools, filesystem, browser automation). Can be stdio (subprocess) or HTTP.
 
 ### Guild
+
 A named, reusable bundle of upstream MCP servers. Examples: `qa-engineer`, `devops`, `frontend`, `ceo`. A guild is a role — assign it to an agent to give that agent all tools for that role.
 
 ### Agent
+
 A registered entity (a Claude Code instance, an automated bot, etc.) with a stable, unique endpoint URL. An agent can belong to **multiple guilds** — its tool set is the union of all guild tools plus any directly assigned servers. Two agents in the same guild (e.g. `garry` and `claire`, both in `ceo`) can have different direct-assigned servers on top.
 
 ### Relationship model
+
 ```
 Upstream MCP Server (n) ────────────── belongs to (many) ─────────── Guild (m)
                                                                           │
@@ -43,9 +48,11 @@ Upstream MCP Server (n) ────────────── belongs to (m
 ```
 
 **Tool resolution for an agent:**
+
 ```
 tools = union( guild_servers(g) for g in agent.guilds ) ∪ agent_direct_servers(agent.id)
 ```
+
 Deduplication: if the same upstream server appears in multiple guilds or also as a direct assignment, it is connected once and its tools appear once.
 
 ---
@@ -108,7 +115,7 @@ The primary operator interface is a single YAML file at `$MCP_AGGREGATOR_HOME/mc
 
 # Runtime settings (all optional — also settable via CLI flag or env var)
 port: 4000
-publicUrl: "http://localhost:4000"
+publicUrl: 'http://localhost:4000'
 
 # Upstream MCP server definitions
 servers:
@@ -116,9 +123,9 @@ servers:
     name: GitHub Tools
     transport: stdio
     command: npx
-    args: ["-y", "@modelcontextprotocol/server-github"]
+    args: ['-y', '@modelcontextprotocol/server-github']
     env:
-      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"   # env var interpolation
+      GITHUB_PERSONAL_ACCESS_TOKEN: '${GITHUB_TOKEN}' # env var interpolation
     timeout_ms: 30000
 
   - alias: browser
@@ -126,48 +133,48 @@ servers:
     transport: streamablehttp
     url: http://localhost:3001/mcp
     headers:
-      Authorization: "Bearer ${BROWSER_TOKEN}"
+      Authorization: 'Bearer ${BROWSER_TOKEN}'
 
   - alias: slack
     name: Slack
     transport: stdio
     command: npx
-    args: ["-y", "@modelcontextprotocol/server-slack"]
+    args: ['-y', '@modelcontextprotocol/server-slack']
     env:
-      SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}"
+      SLACK_BOT_TOKEN: '${SLACK_BOT_TOKEN}'
 
   - alias: garry-crm
     name: Garry Custom CRM
     transport: streamablehttp
     url: http://localhost:3002/mcp
     headers:
-      Authorization: "Bearer ${GARRY_CRM_TOKEN}"
+      Authorization: 'Bearer ${GARRY_CRM_TOKEN}'
 
 # Guild definitions — named bundles of servers
 guilds:
   - slug: qa-engineer
     name: QA Engineer
-    color: "#10b981"
+    color: '#10b981'
     description: Tools for QA testing workflows
     servers: [browser, github, slack]
 
   - slug: developer
     name: Developer
-    color: "#3b82f6"
+    color: '#3b82f6'
     servers: [github]
 
   - slug: ceo
     name: CEO
-    color: "#8b5cf6"
+    color: '#8b5cf6'
     servers: [browser, slack]
 
 # Agent pre-configuration (optional).
 # Agents NOT listed here auto-register on first connect with no guilds.
 agents:
   - id: garry
-    display_name: "Garry (CEO agent)"
+    display_name: 'Garry (CEO agent)'
     guilds: [ceo, developer]
-    direct_servers: [garry-crm]   # must be an alias defined above
+    direct_servers: [garry-crm] # must be an alias defined above
 
   - id: claude-qa-1
     guilds: [qa-engineer]
@@ -178,6 +185,7 @@ agents:
 > **Important — env var rotation:** Because values are resolved from `process.env` at parse time, rotating a credential (e.g. issuing a new `GITHUB_TOKEN`) requires restarting the process. Hot reload re-parses the YAML file but cannot pick up changes to environment variables that were set before the process started. Operators must restart `mcp-aggregator` after rotating secrets, or use a secrets manager that injects env vars at startup.
 
 **Secret handling requirements:**
+
 - The `db.sqlite` file MUST be created with mode `0600` (owner read/write only). The proxy MUST abort startup if it cannot set these permissions.
 - Resolved values of `env` and `headers` fields MUST NEVER appear in log output at any level. Log entries for upstream connections MUST reference only the key name (e.g. `"env var GITHUB_TOKEN is set"`, never the token value).
 - Operators MUST NOT commit literal credential values in `mcp.yaml` to version control. The README MUST include a `.gitignore` entry for `mcp.yaml` and a warning against literal secrets.
@@ -187,26 +195,27 @@ agents:
 **File watching:** The proxy watches `mcp.yaml` for changes using [chokidar](https://github.com/paulmillr/chokidar). On modification, it re-parses the file, diffs against the current in-memory config, and triggers a hot reload for affected sessions (§8). No restart required. `chokidar` is preferred over `fs.watch` for cross-platform reliability — `fs.watch` is unreliable on NFS mounts, Docker volume mounts, and some Linux kernel configurations.
 
 **Config file security requirements:**
+
 - The proxy MUST resolve `mcp.yaml` to its real path (`fs.realpath`) on startup and refuse to load if the resolved path differs from the configured path (symlink protection). The same check MUST be applied on each hot-reload event.
 - On parse error during hot reload, the proxy MUST retain the last valid configuration and log an `ERROR` with the parse error. It MUST NOT partially apply a broken config.
 - stdio subprocess spawning MUST use `child_process.spawn` with an explicit args array, never `child_process.exec`. This MUST be enforced in code review to prevent regression.
 
 ### Runtime settings
 
-| Key in YAML | CLI flag | Env var | Default | Description |
-|-------------|----------|---------|---------|-------------|
-| `port` | `--port` | `MCP_AGGREGATOR_PORT` | `4000` | Primary HTTP listen port |
-| `apiPort` | `--api-port` | `MCP_AGGREGATOR_API_PORT` | unset | Optional second port for UI+API only (two-port layout) |
-| `publicUrl` | `--public-url` | `MCP_AGGREGATOR_PUBLIC_URL` | `http://localhost:{port}` | Advertised base URL in agent instructions and UI links |
-| `home` | `--home` | `MCP_AGGREGATOR_HOME` | `~/.mcp-aggregator` | Root directory for `mcp.yaml` and `db.sqlite` |
-| `migrationPrompt` | — | `MCP_AGGREGATOR_MIGRATION_PROMPT` | `interactive` | `never`/`always`/`interactive` — controls migration auto-apply at startup. Set to `never` in CI and Docker. |
-| `toolWarnThreshold` | — | `MCP_AGGREGATOR_TOOL_WARN_THRESHOLD` | `128` | Tool count above which a warning is logged and included in `mcp__describe` response |
-| `upstreamConcurrency` | — | `MCP_AGGREGATOR_UPSTREAM_CONCURRENCY` | `10` | Max parallel upstream connections per session-start |
-| `reloadDebounceMs` | — | `MCP_AGGREGATOR_RELOAD_DEBOUNCE_MS` | `300` | Debounce window (ms) for chokidar file change events |
-| `httpKeepaliveMs` | — | `MCP_AGGREGATOR_HTTP_KEEPALIVE_MS` | `30000` | Ping interval for idle streamablehttp upstreams |
-| `disableGuildHints` | — | `MCP_AGGREGATOR_DISABLE_GUILD_HINTS` | `false` | When true, `clientInfo.name` is never interpreted as a guild hint |
-| `disableGuildEndpoints` | — | `MCP_AGGREGATOR_DISABLE_GUILD_ENDPOINTS` | `false` | When true, `/mcp/guilds/:slugs` untracked endpoints return 403 |
-| `allowPrivateUrls` | — | `MCP_AGGREGATOR_ALLOW_PRIVATE_URLS` | `false` | When false, private IP ranges are rejected in upstream HTTP URLs |
+| Key in YAML             | CLI flag       | Env var                                  | Default                   | Description                                                                                                 |
+| ----------------------- | -------------- | ---------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `port`                  | `--port`       | `MCP_AGGREGATOR_PORT`                    | `4000`                    | Primary HTTP listen port                                                                                    |
+| `apiPort`               | `--api-port`   | `MCP_AGGREGATOR_API_PORT`                | unset                     | Optional second port for UI+API only (two-port layout)                                                      |
+| `publicUrl`             | `--public-url` | `MCP_AGGREGATOR_PUBLIC_URL`              | `http://localhost:{port}` | Advertised base URL in agent instructions and UI links                                                      |
+| `home`                  | `--home`       | `MCP_AGGREGATOR_HOME`                    | `~/.mcp-aggregator`       | Root directory for `mcp.yaml` and `db.sqlite`                                                               |
+| `migrationPrompt`       | —              | `MCP_AGGREGATOR_MIGRATION_PROMPT`        | `interactive`             | `never`/`always`/`interactive` — controls migration auto-apply at startup. Set to `never` in CI and Docker. |
+| `toolWarnThreshold`     | —              | `MCP_AGGREGATOR_TOOL_WARN_THRESHOLD`     | `128`                     | Tool count above which a warning is logged and included in `mcp__describe` response                         |
+| `upstreamConcurrency`   | —              | `MCP_AGGREGATOR_UPSTREAM_CONCURRENCY`    | `10`                      | Max parallel upstream connections per session-start                                                         |
+| `reloadDebounceMs`      | —              | `MCP_AGGREGATOR_RELOAD_DEBOUNCE_MS`      | `300`                     | Debounce window (ms) for chokidar file change events                                                        |
+| `httpKeepaliveMs`       | —              | `MCP_AGGREGATOR_HTTP_KEEPALIVE_MS`       | `30000`                   | Ping interval for idle streamablehttp upstreams                                                             |
+| `disableGuildHints`     | —              | `MCP_AGGREGATOR_DISABLE_GUILD_HINTS`     | `false`                   | When true, `clientInfo.name` is never interpreted as a guild hint                                           |
+| `disableGuildEndpoints` | —              | `MCP_AGGREGATOR_DISABLE_GUILD_ENDPOINTS` | `false`                   | When true, `/mcp/guilds/:slugs` untracked endpoints return 403                                              |
+| `allowPrivateUrls`      | —              | `MCP_AGGREGATOR_ALLOW_PRIVATE_URLS`      | `false`                   | When false, private IP ranges are rejected in upstream HTTP URLs                                            |
 
 **Migration auto-apply:** On startup, the server checks for pending Drizzle migrations. If `MCP_AGGREGATOR_MIGRATION_PROMPT=never` (default in Docker and CI), pending migrations are applied automatically without prompt. If migrations fail, the server exits with a non-zero code — it does not start against a stale schema. `drizzle.config.ts` must point to the compiled JavaScript schema output (`dist/db/schema.js`) so that `drizzle-kit generate` does not require `tsx` at runtime. The build step (`pnpm build:server`) must complete before `pnpm db:generate` or `pnpm db:migrate` are run.
 
@@ -214,13 +223,13 @@ agents:
 
 SQLite at `$MCP_AGGREGATOR_HOME/db.sqlite` stores what the YAML cannot: dynamic runtime state.
 
-| What lives in SQLite | What lives in YAML |
-|----------------------|--------------------|
-| Session records (connected/disconnected, tools served, upstream statuses) | Server definitions |
-| Agent `last_seen_at`, `session_count`, `client_info` | Guild definitions |
-| Auto-registered agents (not in YAML) | Agent guild assignments |
-| Runtime overrides written via REST API | Env vars and headers |
-| Cached tool names per upstream server | — |
+| What lives in SQLite                                                      | What lives in YAML      |
+| ------------------------------------------------------------------------- | ----------------------- |
+| Session records (connected/disconnected, tools served, upstream statuses) | Server definitions      |
+| Agent `last_seen_at`, `session_count`, `client_info`                      | Guild definitions       |
+| Auto-registered agents (not in YAML)                                      | Agent guild assignments |
+| Runtime overrides written via REST API                                    | Env vars and headers    |
+| Cached tool names per upstream server                                     | —                       |
 
 **Config authority:** YAML takes precedence for anything defined in it. If an agent appears in both YAML and SQLite (auto-registered), the YAML guild assignments win on reload. If an agent is only in SQLite (auto-registered, not in YAML), its guild assignments are editable via REST API and persisted in SQLite.
 
@@ -299,17 +308,17 @@ mcp-proxy/
 
 ### Tooling
 
-| Tool | Purpose | Config file |
-|------|---------|-------------|
-| TypeScript 5 | Language, strict mode | `tsconfig.json` |
-| esbuild | Server bundle | `package.json` build script |
-| Vite 6 | UI bundle | `ui/vite.config.ts` |
-| ESLint | Linting | `.eslintrc.json` |
-| Prettier | Formatting | `.prettierrc` |
-| Vitest | Tests | `vitest.config.ts` |
-| commitlint | Commit message enforcement | `commitlint.config.js` |
-| husky | Git hooks (pre-commit lint, commit-msg lint) | `.husky/` |
-| Changesets | Version management & changelog | `.changeset/config.json` |
+| Tool         | Purpose                                      | Config file                 |
+| ------------ | -------------------------------------------- | --------------------------- |
+| TypeScript 5 | Language, strict mode                        | `tsconfig.json`             |
+| esbuild      | Server bundle                                | `package.json` build script |
+| Vite 6       | UI bundle                                    | `ui/vite.config.ts`         |
+| ESLint       | Linting                                      | `.eslintrc.json`            |
+| Prettier     | Formatting                                   | `.prettierrc`               |
+| Vitest       | Tests                                        | `vitest.config.ts`          |
+| commitlint   | Commit message enforcement                   | `commitlint.config.js`      |
+| husky        | Git hooks (pre-commit lint, commit-msg lint) | `.husky/`                   |
+| Changesets   | Version management & changelog               | `.changeset/config.json`    |
 
 ### Conventional Commits
 
@@ -348,21 +357,21 @@ Versioning is managed by [Changesets](https://github.com/changesets/changesets):
     "mcp-aggregator-stdio": "dist/bin/mcp-aggregator-stdio.js"
   },
   "scripts": {
-    "dev":          "tsx watch bin/mcp-aggregator.ts -- start",
-    "build":        "pnpm build:server && pnpm build:cli && pnpm build:stdio && pnpm build:ui",
+    "dev": "tsx watch bin/mcp-aggregator.ts -- start",
+    "build": "pnpm build:server && pnpm build:cli && pnpm build:stdio && pnpm build:ui",
     "build:server": "esbuild src/server/http.ts --bundle --platform=node --outfile=dist/server.js",
-    "build:cli":    "esbuild bin/mcp-aggregator.ts --bundle --platform=node --outfile=dist/bin/mcp-aggregator.js",
-    "build:stdio":  "esbuild bin/mcp-aggregator-stdio.ts --bundle --platform=node --outfile=dist/bin/mcp-aggregator-stdio.js",
-    "build:ui":     "vite build ui/",
-    "typecheck":    "tsc --noEmit",
-    "lint":         "eslint src/ ui/src/ --ext .ts,.tsx",
-    "test":         "vitest",
-    "test:run":     "vitest run",
-    "db:generate":  "drizzle-kit generate",
-    "db:migrate":   "tsx src/db/migrate.ts",
-    "changeset":    "changeset",
-    "version":      "changeset version",
-    "release":      "pnpm build && changeset publish"
+    "build:cli": "esbuild bin/mcp-aggregator.ts --bundle --platform=node --outfile=dist/bin/mcp-aggregator.js",
+    "build:stdio": "esbuild bin/mcp-aggregator-stdio.ts --bundle --platform=node --outfile=dist/bin/mcp-aggregator-stdio.js",
+    "build:ui": "vite build ui/",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/ ui/src/ --ext .ts,.tsx",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "pnpm build && changeset publish"
   }
 }
 ```
@@ -373,11 +382,11 @@ Versioning is managed by [Changesets](https://github.com/changesets/changesets):
 
 Tests are divided into three tiers that map to the component layers:
 
-| Tier | Location | Uses real | Purpose |
-|------|----------|-----------|---------|
-| Unit | `tests/unit/` | Nothing external | Namespacing logic, alias validation, state machine transitions, event bus ordering, YAML config parsing, session resolver deduplication |
-| Integration | `tests/integration/` | Real SQLite (in-memory via `:memory:`), `MockUpstreamManager` | Full session lifecycle, hot reload, REST API, guild resolution, DB queries |
-| End-to-end | `tests/e2e/` | Real SQLite, real `node` subprocesses running a minimal MCP echo server | stdio transport, full MCP initialize + tools/list flow, stdio wrapper |
+| Tier        | Location             | Uses real                                                               | Purpose                                                                                                                                 |
+| ----------- | -------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit        | `tests/unit/`        | Nothing external                                                        | Namespacing logic, alias validation, state machine transitions, event bus ordering, YAML config parsing, session resolver deduplication |
+| Integration | `tests/integration/` | Real SQLite (in-memory via `:memory:`), `MockUpstreamManager`           | Full session lifecycle, hot reload, REST API, guild resolution, DB queries                                                              |
+| End-to-end  | `tests/e2e/`         | Real SQLite, real `node` subprocesses running a minimal MCP echo server | stdio transport, full MCP initialize + tools/list flow, stdio wrapper                                                                   |
 
 **Unit test doubles:** Vitest mocks are not used for component interfaces — instead, lightweight hand-written test doubles are checked in at `tests/doubles/`:
 
@@ -426,14 +435,15 @@ Maps incoming MCP connections to the correct MCP capability set.
 
 **URL patterns:**
 
-| URL | Description |
-|-----|-------------|
-| `/mcp/agents/:agent-id` | Per-agent endpoint. The agent ID is a user-supplied slug from the URL path (e.g. `garry`). No authentication — the proxy trusts the ID as-is and treats the caller as that agent. Auto-registers on first connect. Serves union of all the agent's guild MCPs + direct assignments. |
-| `/mcp/guilds/:guild-slug` | Untracked single-guild endpoint. Any client here gets that guild's MCPs. No agent record is created. |
+| URL                                | Description                                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/mcp/agents/:agent-id`            | Per-agent endpoint. The agent ID is a user-supplied slug from the URL path (e.g. `garry`). No authentication — the proxy trusts the ID as-is and treats the caller as that agent. Auto-registers on first connect. Serves union of all the agent's guild MCPs + direct assignments.                                                                   |
+| `/mcp/guilds/:guild-slug`          | Untracked single-guild endpoint. Any client here gets that guild's MCPs. No agent record is created.                                                                                                                                                                                                                                                  |
 | `/mcp/guilds/:slug1,:slug2,:slug3` | Untracked **multi-guild** endpoint. Comma-separated slugs. Serves the union of all listed guilds. Any number of guilds. No agent record created. Note: commas are valid unencoded in URL paths (RFC 3986 §3.3); percent-encoded `%2C` is also accepted. Operators behind reverse proxies that encode commas must configure pass-through or use `%2C`. |
-| `/mcp` | Default endpoint. Serves a special `default` guild (seeded empty at startup). |
+| `/mcp`                             | Default endpoint. Serves a special `default` guild (seeded empty at startup).                                                                                                                                                                                                                                                                         |
 
 **Examples:**
+
 ```
 # Single guild (untracked)
 http://localhost:4000/mcp/guilds/qa-engineer
@@ -528,7 +538,7 @@ export interface IUpstreamManager {
 export interface UpstreamHandle {
   readonly serverId: string;
   readonly alias: string;
-  readonly status: UpstreamStatus;   // "connected" | "error" | "disconnected"
+  readonly status: UpstreamStatus; // "connected" | "error" | "disconnected"
   callTool(name: string, args: unknown): Promise<ToolCallResult>;
   listTools(): Promise<ToolDef[]>;
   listResources(): Promise<ResourceDef[]>;
@@ -541,7 +551,10 @@ export interface UpstreamHandle {
 // src/events/IEventBus
 export interface IEventBus {
   publish<K extends keyof EventMap>(event: K, payload: EventMap[K]): void;
-  subscribe<K extends keyof EventMap>(event: K, handler: (payload: EventMap[K]) => void): () => void;
+  subscribe<K extends keyof EventMap>(
+    event: K,
+    handler: (payload: EventMap[K]) => void
+  ): () => void;
 }
 ```
 
@@ -549,12 +562,12 @@ export interface IEventBus {
 
 ```typescript
 // bin/mcp-aggregator.ts (sketch)
-const config  = new YamlConfigLoader(home);
-const store   = new SqliteConfigStore(dbPath);
-const bus     = new TypedEventBus();
+const config = new YamlConfigLoader(home);
+const store = new SqliteConfigStore(dbPath);
+const bus = new TypedEventBus();
 const manager = new UpstreamConnectionManager(bus);
-const engine  = new AggregatorEngine(store, manager, bus);
-const app     = buildExpressApp({ engine, store, bus, config });
+const engine = new AggregatorEngine(store, manager, bus);
+const app = buildExpressApp({ engine, store, bus, config });
 ```
 
 In tests, `SqliteConfigStore` is replaced by `InMemoryConfigStore`, `UpstreamConnectionManager` by `MockUpstreamManager`, etc. — no test ever needs a real SQLite file or a real child process unless it is an integration test.
@@ -604,6 +617,7 @@ function resolveServerSet(agentId: string, store: IConfigStore): ResolvedServerC
 Disabled servers (`enabled = 0`) are excluded from the result set — they are never connected for any session. The `_via` metadata is attached to the upstream handle so the meta-tools (`mcp__describe`, `mcp__tools_by_server`) can report source attribution without re-querying the DB.
 
 **Session isolation:** Each MCP session gets its own upstream connection pool. Two simultaneous sessions for the same agent (e.g. two Claude Code windows both using `garry`) each maintain independent upstream connections. There is no shared connection pool across sessions of the same agent. This means:
+
 - A hot-reload event broadcasts `notifications/tools/list_changed` to all active sessions for that agent independently
 - If an upstream fails for one session it does not affect the other
 - Upstream connections are not reused across sessions (connection pooling across sessions is a v2 concern)
@@ -660,13 +674,13 @@ Every session managed by the Aggregator Engine moves through the following state
 
 **State definitions:**
 
-| State | Description | Allowed operations |
-|-------|-------------|-------------------|
-| `INITIALIZING` | Upstreams being connected in parallel; session record written to DB with no `disconnected_at`. | None from external callers — requests are queued for up to `aggregate_deadline` ms, then rejected if still initializing. |
-| `ACTIVE` | Session live; zero or more upstreams connected (some may be in `error` state). | `tools/list`, `tools/call`, `resources/*`, `prompts/*`, `mcp__*` meta-tools, reload. |
-| `RELOADING` | A hot-reload event is being processed. Old upstream handles are being drained; new handles are being connected. New `tools/call` requests targeting draining upstreams are queued for 500 ms then rejected if the new handle is not ready. | Read-only meta-tools (`mcp__describe`, `mcp__status`) served from snapshot; tool calls queued or rejected as above. |
-| `DRAINING` | `closeSession()` called; waiting for in-flight calls to complete before killing upstreams. New requests rejected immediately with `isError: true`. | Nothing new; in-flight calls complete. |
-| `CLOSED` | Terminal state. In-memory handle removed. DB row has `disconnected_at` set. | None — references to this session are stale. |
+| State          | Description                                                                                                                                                                                                                                | Allowed operations                                                                                                       |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `INITIALIZING` | Upstreams being connected in parallel; session record written to DB with no `disconnected_at`.                                                                                                                                             | None from external callers — requests are queued for up to `aggregate_deadline` ms, then rejected if still initializing. |
+| `ACTIVE`       | Session live; zero or more upstreams connected (some may be in `error` state).                                                                                                                                                             | `tools/list`, `tools/call`, `resources/*`, `prompts/*`, `mcp__*` meta-tools, reload.                                     |
+| `RELOADING`    | A hot-reload event is being processed. Old upstream handles are being drained; new handles are being connected. New `tools/call` requests targeting draining upstreams are queued for 500 ms then rejected if the new handle is not ready. | Read-only meta-tools (`mcp__describe`, `mcp__status`) served from snapshot; tool calls queued or rejected as above.      |
+| `DRAINING`     | `closeSession()` called; waiting for in-flight calls to complete before killing upstreams. New requests rejected immediately with `isError: true`.                                                                                         | Nothing new; in-flight calls complete.                                                                                   |
+| `CLOSED`       | Terminal state. In-memory handle removed. DB row has `disconnected_at` set.                                                                                                                                                                | None — references to this session are stale.                                                                             |
 
 **Concurrent reload + close:** If `closeSession()` is called while the session is in `RELOADING`, the reload is abandoned (pending connect attempts are cancelled), the session transitions directly to `DRAINING`, and proceeds to `CLOSED`. The newly initiated upstream connections that were mid-flight during the reload are killed without writing their status to the DB.
 
@@ -676,13 +690,14 @@ Manages connections to individual upstream MCP servers.
 
 **Supported transports:**
 
-| Transport type | SDK class | Notes |
-|----------------|-----------|-------|
-| `stdio` | — | Spawns subprocess via Node `child_process.spawn`. One process per upstream per session. |
-| `streamablehttp` | `StreamableHTTPClientTransport` | Uses `@modelcontextprotocol/sdk`. Supports stateful and stateless modes. |
-| `sse` | `SSEClientTransport` | Legacy transport via `@modelcontextprotocol/sdk`. No reconnect on disconnect — if the SSE stream drops mid-session the upstream is marked disconnected and `tools/list_changed` is emitted. After the notification, `tools/list` omits that upstream's tools for the remainder of the session. Reconnect is only attempted at the start of the next session. |
+| Transport type   | SDK class                       | Notes                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `stdio`          | —                               | Spawns subprocess via Node `child_process.spawn`. One process per upstream per session.                                                                                                                                                                                                                                                                      |
+| `streamablehttp` | `StreamableHTTPClientTransport` | Uses `@modelcontextprotocol/sdk`. Supports stateful and stateless modes.                                                                                                                                                                                                                                                                                     |
+| `sse`            | `SSEClientTransport`            | Legacy transport via `@modelcontextprotocol/sdk`. No reconnect on disconnect — if the SSE stream drops mid-session the upstream is marked disconnected and `tools/list_changed` is emitted. After the notification, `tools/list` omits that upstream's tools for the remainder of the session. Reconnect is only attempted at the start of the next session. |
 
 **Connection lifecycle:**
+
 - All upstreams for a session are connected eagerly at session start, in parallel
 - Failed upstreams are skipped (logged, not fatal); the session continues with remaining upstreams
 - `upstream_statuses` snapshot is written to `sessions` after all connection attempts resolve
@@ -703,6 +718,7 @@ Manages connections to individual upstream MCP servers.
 **HTTP upstream keep-alive probing:** For `streamablehttp` upstreams, the connection manager MUST issue a lightweight MCP `ping` request at an interval of `MCP_AGGREGATOR_HTTP_KEEPALIVE_MS` (default: `30000` ms, min: `5000` ms) when the upstream has been idle (no `tools/call` traffic) for that interval. A failed ping transitions the upstream to `"error"` state, emits `notifications/tools/list_changed`, and logs a `WARN`. A subsequent successful ping transitions back to `"connected"` and re-emits `notifications/tools/list_changed`. This ping-based health check does not apply to `stdio` upstreams (liveness is inferred from the subprocess's running state) or `sse` upstreams (handled via stream closure events).
 
 **Input validation for upstream server config:**
+
 - `url` (HTTP transports): MUST be validated as a well-formed absolute HTTP/HTTPS URL. Private IP ranges (RFC 1918), link-local (`169.254.0.0/16`), loopback (`127.0.0.0/8`), and IPv6 equivalents are permitted only when `MCP_AGGREGATOR_ALLOW_PRIVATE_URLS=true` is explicitly set (default: `false`).
 - `command` (stdio transports): stdio transport inherits the full process environment and runs as the same user as the proxy. Operators must treat `command` as equivalent to shell execution and restrict API access accordingly.
 - `alias`: Validated at write time against `[a-z][a-z0-9-]*` (letters, digits, hyphens; no underscores). Reject aliases matching reserved patterns.
@@ -737,89 +753,89 @@ WAL mode is the single most important setting: it allows readers to proceed conc
 
 #### `upstream_servers`
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | TEXT UUID | PK |
-| `name` | TEXT | Display name |
-| `alias` | TEXT UNIQUE | Slug for tool namespacing, e.g. `github`. Pattern: `[a-z][a-z0-9-]*` (letters, digits, hyphens — no underscores). Underscores are excluded so that the `{alias}__` separator is unambiguous and so that `mcp+{alias}://` is a valid URI scheme per RFC 3986. **Globally unique** — no two servers may share an alias regardless of guild membership. Rejected at write time with 409 if taken. |
-| `transport_type` | TEXT | `stdio` \| `streamablehttp` \| `sse` |
-| `command` | TEXT | stdio: executable |
-| `args` | TEXT (JSON array) | stdio: arguments |
-| `url` | TEXT | HTTP: endpoint URL |
-| `enabled` | INTEGER | Global kill-switch (0/1). Disabled = never connected for any agent/guild. |
-| `timeout_ms` | INTEGER | Default 30000 |
-| `created_at` | TEXT ISO8601 | |
-| `updated_at` | TEXT ISO8601 | |
-| `last_connected_at` | TEXT ISO8601 \| NULL | Timestamp of last successful connection (any session). Updated on each successful connect. |
-| `last_error_at` | TEXT ISO8601 \| NULL | Timestamp of last failed connection attempt. |
-| `last_error_message` | TEXT \| NULL | Error from last failed attempt. Truncated to 1000 chars. Cleared on next successful connect. |
-| `consecutive_errors` | INTEGER | NOT NULL DEFAULT 0. Reset to 0 on successful connect. Used by the UI health indicator. |
-| `cached_tool_count` | INTEGER | NOT NULL DEFAULT 0. Updated on each successful cache write. |
-| `yaml_managed` | INTEGER | NOT NULL DEFAULT 0. 1 = inserted/updated by YAML reload. 0 = REST API or auto. |
+| Column               | Type                 | Notes                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                 | TEXT UUID            | PK                                                                                                                                                                                                                                                                                                                                                                                             |
+| `name`               | TEXT                 | Display name                                                                                                                                                                                                                                                                                                                                                                                   |
+| `alias`              | TEXT UNIQUE          | Slug for tool namespacing, e.g. `github`. Pattern: `[a-z][a-z0-9-]*` (letters, digits, hyphens — no underscores). Underscores are excluded so that the `{alias}__` separator is unambiguous and so that `mcp+{alias}://` is a valid URI scheme per RFC 3986. **Globally unique** — no two servers may share an alias regardless of guild membership. Rejected at write time with 409 if taken. |
+| `transport_type`     | TEXT                 | `stdio` \| `streamablehttp` \| `sse`                                                                                                                                                                                                                                                                                                                                                           |
+| `command`            | TEXT                 | stdio: executable                                                                                                                                                                                                                                                                                                                                                                              |
+| `args`               | TEXT (JSON array)    | stdio: arguments                                                                                                                                                                                                                                                                                                                                                                               |
+| `url`                | TEXT                 | HTTP: endpoint URL                                                                                                                                                                                                                                                                                                                                                                             |
+| `enabled`            | INTEGER              | Global kill-switch (0/1). Disabled = never connected for any agent/guild.                                                                                                                                                                                                                                                                                                                      |
+| `timeout_ms`         | INTEGER              | Default 30000                                                                                                                                                                                                                                                                                                                                                                                  |
+| `created_at`         | TEXT ISO8601         |                                                                                                                                                                                                                                                                                                                                                                                                |
+| `updated_at`         | TEXT ISO8601         |                                                                                                                                                                                                                                                                                                                                                                                                |
+| `last_connected_at`  | TEXT ISO8601 \| NULL | Timestamp of last successful connection (any session). Updated on each successful connect.                                                                                                                                                                                                                                                                                                     |
+| `last_error_at`      | TEXT ISO8601 \| NULL | Timestamp of last failed connection attempt.                                                                                                                                                                                                                                                                                                                                                   |
+| `last_error_message` | TEXT \| NULL         | Error from last failed attempt. Truncated to 1000 chars. Cleared on next successful connect.                                                                                                                                                                                                                                                                                                   |
+| `consecutive_errors` | INTEGER              | NOT NULL DEFAULT 0. Reset to 0 on successful connect. Used by the UI health indicator.                                                                                                                                                                                                                                                                                                         |
+| `cached_tool_count`  | INTEGER              | NOT NULL DEFAULT 0. Updated on each successful cache write.                                                                                                                                                                                                                                                                                                                                    |
+| `yaml_managed`       | INTEGER              | NOT NULL DEFAULT 0. 1 = inserted/updated by YAML reload. 0 = REST API or auto.                                                                                                                                                                                                                                                                                                                 |
 
 #### `upstream_env_vars`
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | TEXT UUID | PK |
-| `server_id` | FK → upstream_servers | |
-| `key` | TEXT | |
-| `value` | TEXT | **Write-only.** Never returned by any API or UI. Only `key` is exposed externally. |
-| `created_at` | TEXT ISO8601 | |
-| `updated_at` | TEXT ISO8601 | Set when the row is created. Since `PUT /servers/:id/env` does a full delete-and-reinsert, each row's `updated_at` equals its `created_at`. This column is included for schema consistency and future partial-update support. |
+| Column       | Type                  | Notes                                                                                                                                                                                                                         |
+| ------------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`         | TEXT UUID             | PK                                                                                                                                                                                                                            |
+| `server_id`  | FK → upstream_servers |                                                                                                                                                                                                                               |
+| `key`        | TEXT                  |                                                                                                                                                                                                                               |
+| `value`      | TEXT                  | **Write-only.** Never returned by any API or UI. Only `key` is exposed externally.                                                                                                                                            |
+| `created_at` | TEXT ISO8601          |                                                                                                                                                                                                                               |
+| `updated_at` | TEXT ISO8601          | Set when the row is created. Since `PUT /servers/:id/env` does a full delete-and-reinsert, each row's `updated_at` equals its `created_at`. This column is included for schema consistency and future partial-update support. |
 
 #### `upstream_headers`
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | TEXT UUID | PK |
-| `server_id` | FK → upstream_servers | |
-| `key` | TEXT | |
-| `value` | TEXT | **Write-only.** Never returned by any API or UI. Only `key` is exposed externally. |
-| `created_at` | TEXT ISO8601 | |
-| `updated_at` | TEXT ISO8601 | Same semantics as `upstream_env_vars.updated_at` above. |
+| Column       | Type                  | Notes                                                                              |
+| ------------ | --------------------- | ---------------------------------------------------------------------------------- |
+| `id`         | TEXT UUID             | PK                                                                                 |
+| `server_id`  | FK → upstream_servers |                                                                                    |
+| `key`        | TEXT                  |                                                                                    |
+| `value`      | TEXT                  | **Write-only.** Never returned by any API or UI. Only `key` is exposed externally. |
+| `created_at` | TEXT ISO8601          |                                                                                    |
+| `updated_at` | TEXT ISO8601          | Same semantics as `upstream_env_vars.updated_at` above.                            |
 
 #### `guilds`
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | TEXT UUID | PK |
-| `name` | TEXT | Display name, e.g. "QA Engineer" |
-| `slug` | TEXT UNIQUE | URL-safe slug, e.g. `qa-engineer`. Read-only after creation. |
-| `description` | TEXT | Optional description of what this guild is for |
-| `color` | TEXT | Hex color for UI badge, e.g. `#6366f1`. Validated as `^#[0-9a-fA-F]{6}$`, rejected with 422 otherwise. |
-| `created_at` | TEXT ISO8601 | |
-| `updated_at` | TEXT ISO8601 | |
-| `is_system` | INTEGER | NOT NULL DEFAULT 0. 1 for system-managed guilds (currently only `'default'`). Application must reject DELETE and slug/name changes for `is_system=1` rows. |
-| `yaml_managed` | INTEGER | NOT NULL DEFAULT 0. Same semantics as `upstream_servers.yaml_managed`. |
+| Column         | Type         | Notes                                                                                                                                                      |
+| -------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | TEXT UUID    | PK                                                                                                                                                         |
+| `name`         | TEXT         | Display name, e.g. "QA Engineer"                                                                                                                           |
+| `slug`         | TEXT UNIQUE  | URL-safe slug, e.g. `qa-engineer`. Read-only after creation.                                                                                               |
+| `description`  | TEXT         | Optional description of what this guild is for                                                                                                             |
+| `color`        | TEXT         | Hex color for UI badge, e.g. `#6366f1`. Validated as `^#[0-9a-fA-F]{6}$`, rejected with 422 otherwise.                                                     |
+| `created_at`   | TEXT ISO8601 |                                                                                                                                                            |
+| `updated_at`   | TEXT ISO8601 |                                                                                                                                                            |
+| `is_system`    | INTEGER      | NOT NULL DEFAULT 0. 1 for system-managed guilds (currently only `'default'`). Application must reject DELETE and slug/name changes for `is_system=1` rows. |
+| `yaml_managed` | INTEGER      | NOT NULL DEFAULT 0. Same semantics as `upstream_servers.yaml_managed`.                                                                                     |
 
 #### `guild_servers`
 
 Join table: which upstream servers belong to which guild.
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | TEXT UUID | PK |
-| `guild_id` | FK → guilds | |
-| `server_id` | FK → upstream_servers | |
-| `added_at` | TEXT ISO8601 | |
+| Column      | Type                  | Notes |
+| ----------- | --------------------- | ----- |
+| `id`        | TEXT UUID             | PK    |
+| `guild_id`  | FK → guilds           |       |
+| `server_id` | FK → upstream_servers |       |
+| `added_at`  | TEXT ISO8601          |       |
 
 Unique constraint: `(guild_id, server_id)`
 
 #### `agents`
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | TEXT | PK. User-defined slug (from URL path). e.g. `garry`, `claude-qa-1` |
-| `display_name` | TEXT | Optional friendly name, e.g. "Garry (CEO agent)" |
-| `client_info_name` | TEXT | Last seen `clientInfo.name` from initialize |
-| `client_info_version` | TEXT | Last seen `clientInfo.version` |
-| `last_seen_at` | TEXT ISO8601 | Updated on each session connect |
-| `session_count` | INTEGER | Lifetime session counter. Incremented atomically in the same transaction as the `sessions` INSERT on each new connection. |
-| `created_at` | TEXT ISO8601 | |
-| `updated_at` | TEXT ISO8601 | |
-| `registration_source` | TEXT | NOT NULL DEFAULT `'auto'`. Values: `'auto'` (first-connect auto-registration), `'yaml'` (pre-configured in mcp.yaml), `'api'` (created via POST /agents). Set to `'yaml'` on YAML reload for agents defined in the file. |
-| `yaml_managed` | INTEGER | NOT NULL DEFAULT 0. Same semantics as `upstream_servers.yaml_managed`. |
+| Column                | Type         | Notes                                                                                                                                                                                                                    |
+| --------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`                  | TEXT         | PK. User-defined slug (from URL path). e.g. `garry`, `claude-qa-1`                                                                                                                                                       |
+| `display_name`        | TEXT         | Optional friendly name, e.g. "Garry (CEO agent)"                                                                                                                                                                         |
+| `client_info_name`    | TEXT         | Last seen `clientInfo.name` from initialize                                                                                                                                                                              |
+| `client_info_version` | TEXT         | Last seen `clientInfo.version`                                                                                                                                                                                           |
+| `last_seen_at`        | TEXT ISO8601 | Updated on each session connect                                                                                                                                                                                          |
+| `session_count`       | INTEGER      | Lifetime session counter. Incremented atomically in the same transaction as the `sessions` INSERT on each new connection.                                                                                                |
+| `created_at`          | TEXT ISO8601 |                                                                                                                                                                                                                          |
+| `updated_at`          | TEXT ISO8601 |                                                                                                                                                                                                                          |
+| `registration_source` | TEXT         | NOT NULL DEFAULT `'auto'`. Values: `'auto'` (first-connect auto-registration), `'yaml'` (pre-configured in mcp.yaml), `'api'` (created via POST /agents). Set to `'yaml'` on YAML reload for agents defined in the file. |
+| `yaml_managed`        | INTEGER      | NOT NULL DEFAULT 0. Same semantics as `upstream_servers.yaml_managed`.                                                                                                                                                   |
 
 No `guild_id` column — guild membership is in `agent_guilds` (many-to-many).
 
@@ -829,14 +845,14 @@ No `guild_id` column — guild membership is in `agent_guilds` (many-to-many).
 
 Join table: which guilds an agent belongs to.
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | TEXT UUID | PK |
-| `agent_id` | FK → agents | |
-| `guild_id` | FK → guilds | |
-| `added_at` | TEXT ISO8601 | |
-| `added_by` | TEXT | NOT NULL DEFAULT `'api'`. Values: `'yaml'` (inserted by YAML reload), `'api'` (inserted by REST API call), `'hint'` (inserted by self-declared guild hint at auto-registration). |
-| `original_added_at` | TEXT ISO8601 \| NULL | Set on INSERT, never updated. YAML reload uses INSERT OR IGNORE (not DELETE+INSERT) to preserve this. Used as tiebreaker for source attribution in `GET /agents/:id/tools`. |
+| Column              | Type                 | Notes                                                                                                                                                                            |
+| ------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                | TEXT UUID            | PK                                                                                                                                                                               |
+| `agent_id`          | FK → agents          |                                                                                                                                                                                  |
+| `guild_id`          | FK → guilds          |                                                                                                                                                                                  |
+| `added_at`          | TEXT ISO8601         |                                                                                                                                                                                  |
+| `added_by`          | TEXT                 | NOT NULL DEFAULT `'api'`. Values: `'yaml'` (inserted by YAML reload), `'api'` (inserted by REST API call), `'hint'` (inserted by self-declared guild hint at auto-registration). |
+| `original_added_at` | TEXT ISO8601 \| NULL | Set on INSERT, never updated. YAML reload uses INSERT OR IGNORE (not DELETE+INSERT) to preserve this. Used as tiebreaker for source attribution in `GET /agents/:id/tools`.      |
 
 Unique constraint: `(agent_id, guild_id)`
 
@@ -846,12 +862,12 @@ An agent with no rows here has no guild memberships → receives 0 tools + hint 
 
 Direct MCP server assignments per agent (outside of any guild).
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | TEXT UUID | PK |
-| `agent_id` | FK → agents | |
-| `server_id` | FK → upstream_servers | |
-| `added_at` | TEXT ISO8601 | |
+| Column      | Type                  | Notes |
+| ----------- | --------------------- | ----- |
+| `id`        | TEXT UUID             | PK    |
+| `agent_id`  | FK → agents           |       |
+| `server_id` | FK → upstream_servers |       |
+| `added_at`  | TEXT ISO8601          |       |
 
 Unique constraint: `(agent_id, server_id)`
 
@@ -871,30 +887,30 @@ DELETE FROM sessions WHERE id IN (
 
 This guarantees active sessions are never silently evicted from the table due to volume alone. If the proxy accumulates 1000 simultaneous active sessions, no eviction occurs and the table grows beyond 1000 rows until sessions disconnect — an over-cap active session is preferable to a lost session handle.
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | TEXT UUID | PK |
-| `agent_id` | FK → agents \| NULL | NULL for untracked guild URL connections |
-| `guild_slugs` | TEXT (JSON array) \| NULL | Guild slugs at session start (untracked multi-guild connections) |
-| `connected_at` | TEXT ISO8601 | |
-| `disconnected_at` | TEXT ISO8601 \| NULL | NULL = still active |
-| `client_info` | TEXT (JSON) | Full clientInfo from initialize |
-| `upstream_statuses` | TEXT (JSON) | Snapshot: `{ alias: "connected" \| "error" \| "skipped" }` |
-| `tool_count` | INTEGER | How many tools were served |
-| `port` | INTEGER \| NULL | Port on which this session was established. Useful in two-port deployments to distinguish MCP sessions from API/UI sessions. |
+| Column              | Type                      | Notes                                                                                                                        |
+| ------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `id`                | TEXT UUID                 | PK                                                                                                                           |
+| `agent_id`          | FK → agents \| NULL       | NULL for untracked guild URL connections                                                                                     |
+| `guild_slugs`       | TEXT (JSON array) \| NULL | Guild slugs at session start (untracked multi-guild connections)                                                             |
+| `connected_at`      | TEXT ISO8601              |                                                                                                                              |
+| `disconnected_at`   | TEXT ISO8601 \| NULL      | NULL = still active                                                                                                          |
+| `client_info`       | TEXT (JSON)               | Full clientInfo from initialize                                                                                              |
+| `upstream_statuses` | TEXT (JSON)               | Snapshot: `{ alias: "connected" \| "error" \| "skipped" }`                                                                   |
+| `tool_count`        | INTEGER                   | How many tools were served                                                                                                   |
+| `port`              | INTEGER \| NULL           | Port on which this session was established. Useful in two-port deployments to distinguish MCP sessions from API/UI sessions. |
 
 #### `server_tool_cache`
 
 Stores tool names discovered from live upstream connections. Used to power the static tool list endpoints (`GET /agents/:id/tools`, `GET /guilds/:id/tools`) without requiring a live connection. Populated/updated every time an upstream connects successfully.
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | TEXT UUID | PK |
-| `server_id` | FK → upstream_servers | |
-| `tool_name` | TEXT | Original tool name as reported by upstream (without namespace prefix) |
-| `tool_description` | TEXT \| NULL | Tool description from upstream |
-| `input_schema` | TEXT (JSON) \| NULL | JSON Schema for the tool's input parameters |
-| `cached_at` | TEXT ISO8601 | Timestamp of last successful discovery |
+| Column             | Type                  | Notes                                                                 |
+| ------------------ | --------------------- | --------------------------------------------------------------------- |
+| `id`               | TEXT UUID             | PK                                                                    |
+| `server_id`        | FK → upstream_servers |                                                                       |
+| `tool_name`        | TEXT                  | Original tool name as reported by upstream (without namespace prefix) |
+| `tool_description` | TEXT \| NULL          | Tool description from upstream                                        |
+| `input_schema`     | TEXT (JSON) \| NULL   | JSON Schema for the tool's input parameters                           |
+| `cached_at`        | TEXT ISO8601          | Timestamp of last successful discovery                                |
 
 Unique constraint: `(server_id, tool_name)`.
 
@@ -919,16 +935,16 @@ This ensures removed tools are not served by static tool list endpoints. If the 
 
 Per-session upstream connection status. Normalised companion to `sessions.upstream_statuses`. Written in the same transaction as the `sessions` INSERT.
 
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | TEXT UUID | PK |
-| `session_id` | FK → sessions | ON DELETE CASCADE |
-| `server_id` | FK → upstream_servers | ON DELETE CASCADE |
-| `status` | TEXT | `connected` \| `error` \| `skipped` |
-| `error_msg` | TEXT \| NULL | Error message if status = `error` |
-| `connected_at` | TEXT ISO8601 \| NULL | Time upstream connection was established |
-| `disconnected_at` | TEXT ISO8601 \| NULL | Time upstream disconnected mid-session |
-| `enabled_at_start` | INTEGER | 1 if server was enabled when session started. Allows crash-recovery to know which upstreams were intentionally skipped. |
+| Column             | Type                  | Notes                                                                                                                   |
+| ------------------ | --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `id`               | TEXT UUID             | PK                                                                                                                      |
+| `session_id`       | FK → sessions         | ON DELETE CASCADE                                                                                                       |
+| `server_id`        | FK → upstream_servers | ON DELETE CASCADE                                                                                                       |
+| `status`           | TEXT                  | `connected` \| `error` \| `skipped`                                                                                     |
+| `error_msg`        | TEXT \| NULL          | Error message if status = `error`                                                                                       |
+| `connected_at`     | TEXT ISO8601 \| NULL  | Time upstream connection was established                                                                                |
+| `disconnected_at`  | TEXT ISO8601 \| NULL  | Time upstream disconnected mid-session                                                                                  |
+| `enabled_at_start` | INTEGER               | 1 if server was enabled when session started. Allows crash-recovery to know which upstreams were intentionally skipped. |
 
 Index: `(server_id, status)` — enables querying "which sessions are connected to server X?" without JSON parsing.
 Index: `(session_id)` — fast join from session to its upstreams.
@@ -939,20 +955,20 @@ Index: `(session_id)` — fast join from session to its upstreams.
 
 `PRAGMA foreign_keys = ON` must be set on every `better-sqlite3` connection immediately after open, before any query is executed (in `src/db/client.ts`).
 
-| Child table | FK column | Parent table | ON DELETE |
-|---|---|---|---|
-| `upstream_env_vars` | `server_id` | `upstream_servers` | CASCADE |
-| `upstream_headers` | `server_id` | `upstream_servers` | CASCADE |
-| `guild_servers` | `guild_id` | `guilds` | CASCADE |
-| `guild_servers` | `server_id` | `upstream_servers` | CASCADE |
-| `agent_guilds` | `agent_id` | `agents` | CASCADE |
-| `agent_guilds` | `guild_id` | `guilds` | CASCADE |
-| `agent_direct_servers` | `agent_id` | `agents` | CASCADE |
-| `agent_direct_servers` | `server_id` | `upstream_servers` | CASCADE |
-| `sessions` | `agent_id` | `agents` | SET NULL |
-| `server_tool_cache` | `server_id` | `upstream_servers` | CASCADE |
-| `session_upstreams` | `session_id` | `sessions` | CASCADE |
-| `session_upstreams` | `server_id` | `upstream_servers` | CASCADE |
+| Child table            | FK column    | Parent table       | ON DELETE |
+| ---------------------- | ------------ | ------------------ | --------- |
+| `upstream_env_vars`    | `server_id`  | `upstream_servers` | CASCADE   |
+| `upstream_headers`     | `server_id`  | `upstream_servers` | CASCADE   |
+| `guild_servers`        | `guild_id`   | `guilds`           | CASCADE   |
+| `guild_servers`        | `server_id`  | `upstream_servers` | CASCADE   |
+| `agent_guilds`         | `agent_id`   | `agents`           | CASCADE   |
+| `agent_guilds`         | `guild_id`   | `guilds`           | CASCADE   |
+| `agent_direct_servers` | `agent_id`   | `agents`           | CASCADE   |
+| `agent_direct_servers` | `server_id`  | `upstream_servers` | CASCADE   |
+| `sessions`             | `agent_id`   | `agents`           | SET NULL  |
+| `server_tool_cache`    | `server_id`  | `upstream_servers` | CASCADE   |
+| `session_upstreams`    | `session_id` | `sessions`         | CASCADE   |
+| `session_upstreams`    | `server_id`  | `upstream_servers` | CASCADE   |
 
 Note: `sessions.agent_id = SET NULL` preserves historical session rows when an agent is deleted — the session happened, and the agent record was later removed.
 
@@ -960,19 +976,19 @@ Note: `sessions.agent_id = SET NULL` preserves historical session rows when an a
 
 All indexes below must be included in the initial Drizzle schema (not added retroactively in a follow-up migration):
 
-| Table | Index columns | Reason |
-|---|---|---|
-| `sessions` | `(agent_id, disconnected_at)` | Active-session lookup per agent |
-| `sessions` | `(connected_at DESC)` | Session monitor list, session cap DELETE |
-| `agent_guilds` | `(agent_id)` | Guild resolution at session start |
-| `agent_direct_servers` | `(agent_id)` | Direct-server resolution at session start |
-| `guild_servers` | `(guild_id)` | Server list per guild |
-| `guild_servers` | `(server_id)` | Cascade-affected agent discovery on reload |
-| `server_tool_cache` | `(server_id)` | Static tool list endpoints |
-| `upstream_env_vars` | `(server_id)` | Env var lookup when connecting upstream |
-| `upstream_headers` | `(server_id)` | Header lookup when connecting upstream |
-| `session_upstreams` | `(server_id, status)` | Server health queries |
-| `session_upstreams` | `(session_id)` | Fast join from session to its upstreams |
+| Table                  | Index columns                 | Reason                                     |
+| ---------------------- | ----------------------------- | ------------------------------------------ |
+| `sessions`             | `(agent_id, disconnected_at)` | Active-session lookup per agent            |
+| `sessions`             | `(connected_at DESC)`         | Session monitor list, session cap DELETE   |
+| `agent_guilds`         | `(agent_id)`                  | Guild resolution at session start          |
+| `agent_direct_servers` | `(agent_id)`                  | Direct-server resolution at session start  |
+| `guild_servers`        | `(guild_id)`                  | Server list per guild                      |
+| `guild_servers`        | `(server_id)`                 | Cascade-affected agent discovery on reload |
+| `server_tool_cache`    | `(server_id)`                 | Static tool list endpoints                 |
+| `upstream_env_vars`    | `(server_id)`                 | Env var lookup when connecting upstream    |
+| `upstream_headers`     | `(server_id)`                 | Header lookup when connecting upstream     |
+| `session_upstreams`    | `(server_id, status)`         | Server health queries                      |
+| `session_upstreams`    | `(session_id)`                | Fast join from session to its upstreams    |
 
 Note: The unique constraints on `(guild_id, server_id)`, `(agent_id, guild_id)`, and `(agent_id, server_id)` already imply unique indexes; those are covered.
 
@@ -986,40 +1002,38 @@ The SQLite schema is written using `drizzle-orm/sqlite-core`. **Never use `drizz
 
 ```typescript
 // src/db/schema.ts
-import {
-  sqliteTable, text, integer, uniqueIndex, index
-} from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, uniqueIndex, index } from 'drizzle-orm/sqlite-core';
 
 export const upstreamServers = sqliteTable(
   'upstream_servers',
   {
-    id:                  text('id').primaryKey(),                     // UUIDv4, generated at call site
-    name:                text('name').notNull(),
-    alias:               text('alias').notNull().unique(),
-    transportType:       text('transport_type', {
-                           enum: ['stdio', 'streamablehttp', 'sse'],
-                         }).notNull(),
-    command:             text('command'),
-    args:                text('args'),                                // JSON array stored as TEXT
-    url:                 text('url'),
-    enabled:             integer('enabled', { mode: 'boolean' }).notNull().default(true),
-    timeoutMs:           integer('timeout_ms').notNull().default(30000),
-    createdAt:           text('created_at').notNull(),
-    updatedAt:           text('updated_at').notNull(),
-    lastConnectedAt:     text('last_connected_at'),
-    lastErrorAt:         text('last_error_at'),
-    lastErrorMessage:    text('last_error_message'),
-    consecutiveErrors:   integer('consecutive_errors').notNull().default(0),
-    cachedToolCount:     integer('cached_tool_count').notNull().default(0),
-    yamlManaged:         integer('yaml_managed', { mode: 'boolean' }).notNull().default(false),
+    id: text('id').primaryKey(), // UUIDv4, generated at call site
+    name: text('name').notNull(),
+    alias: text('alias').notNull().unique(),
+    transportType: text('transport_type', {
+      enum: ['stdio', 'streamablehttp', 'sse'],
+    }).notNull(),
+    command: text('command'),
+    args: text('args'), // JSON array stored as TEXT
+    url: text('url'),
+    enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+    timeoutMs: integer('timeout_ms').notNull().default(30000),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+    lastConnectedAt: text('last_connected_at'),
+    lastErrorAt: text('last_error_at'),
+    lastErrorMessage: text('last_error_message'),
+    consecutiveErrors: integer('consecutive_errors').notNull().default(0),
+    cachedToolCount: integer('cached_tool_count').notNull().default(0),
+    yamlManaged: integer('yaml_managed', { mode: 'boolean' }).notNull().default(false),
   },
   (t) => ({
     aliasIdx: uniqueIndex('upstream_servers_alias_idx').on(t.alias),
-  }),
+  })
 );
 
 // Exported row types — use these everywhere; never hand-write `{ id: string; alias: string; ... }`
-export type UpstreamServerRow    = typeof upstreamServers.$inferSelect;
+export type UpstreamServerRow = typeof upstreamServers.$inferSelect;
 export type NewUpstreamServerRow = typeof upstreamServers.$inferInsert;
 ```
 
@@ -1029,7 +1043,7 @@ export type NewUpstreamServerRow = typeof upstreamServers.$inferInsert;
 
 **JSON columns:** Store complex values (`args`, `client_info`, `upstream_statuses`) as `text('col', { mode: 'json' }).$type<YourType>()`. Drizzle will `JSON.parse`/`JSON.stringify` automatically. Attach a generic type parameter (`.${type}<ToolDefinition[]>()`) rather than leaving it as `unknown`, and validate the shape with Zod when reading from an untrusted source (e.g. upstream tool responses cached in `server_tool_cache`).
 
-**Timestamp columns:** Store all timestamps as ISO 8601 TEXT (e.g. `new Date().toISOString()`). Do not use `integer` UNIX timestamps — they are harder to debug and `better-sqlite3` does not natively coerce them. Do not use `sqliteTable`'s `.$defaultFn(() => sql\`CURRENT_TIMESTAMP\`)` — the SQLite default format omits milliseconds and uses a space separator rather than `T`, which breaks strict ISO 8601 consumers.
+**Timestamp columns:** Store all timestamps as ISO 8601 TEXT (e.g. `new Date().toISOString()`). Do not use `integer` UNIX timestamps — they are harder to debug and `better-sqlite3` does not natively coerce them. Do not use `sqliteTable`'s `.$defaultFn(() => sql\`CURRENT_TIMESTAMP\`)`— the SQLite default format omits milliseconds and uses a space separator rather than`T`, which breaks strict ISO 8601 consumers.
 
 **Relations API:** Define Drizzle relations for IDE navigation and the typed query builder (`db.query.*`), but **do not rely on them for production queries**. The relational query builder does not support all SQLite-specific optimisations (e.g. `RETURNING`, `INSERT OR IGNORE`, `ON CONFLICT DO UPDATE`). Use `db.select().from(...).innerJoin(...)` with explicit joins for all hot-path queries.
 
@@ -1038,17 +1052,17 @@ export type NewUpstreamServerRow = typeof upstreamServers.$inferInsert;
 import { relations } from 'drizzle-orm';
 
 export const upstreamServersRelations = relations(upstreamServers, ({ many }) => ({
-  envVars:     many(upstreamEnvVars),
-  headers:     many(upstreamHeaders),
-  guildLinks:  many(guildServers),
-  toolCache:   many(serverToolCache),
+  envVars: many(upstreamEnvVars),
+  headers: many(upstreamHeaders),
+  guildLinks: many(guildServers),
+  toolCache: many(serverToolCache),
   sessionUpstreams: many(sessionUpstreams),
 }));
 
 export const agentsRelations = relations(agents, ({ many }) => ({
-  guilds:        many(agentGuilds),
+  guilds: many(agentGuilds),
   directServers: many(agentDirectServers),
-  sessions:      many(sessions),
+  sessions: many(sessions),
 }));
 ```
 
@@ -1064,11 +1078,12 @@ Drizzle generates migration files with a timestamp prefix (`0001_<name>.sql`, `0
 
 **Zero-downtime migration rules for SQLite:**
 SQLite ALTER TABLE is limited — it does not support `DROP COLUMN` before SQLite 3.35 (included in Node 22 via the bundled `better-sqlite3` build) or `ADD CONSTRAINT`. For complex schema changes, use the SQLite "12-step ALTER TABLE procedure":
+
 1. Create the new table with the correct schema.
 2. Copy data from the old table.
 3. Drop the old table.
 4. Rename the new table.
-All four steps MUST be wrapped in a single transaction within the migration file.
+   All four steps MUST be wrapped in a single transaction within the migration file.
 
 **Rollback strategy:** SQLite does not support transactional DDL rollback for `CREATE TABLE` / `DROP TABLE` across separate transactions. However, because the migration runner wraps each migration in a transaction (`BEGIN / COMMIT`), a migration that fails partway through leaves the database unchanged for that migration. Design migrations so they are idempotent where possible (e.g. `CREATE TABLE IF NOT EXISTS`, `INSERT OR IGNORE`).
 
@@ -1081,12 +1096,11 @@ There is no automated down-migration in the v1 runtime. If a migration must be r
 import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({
-  dialect:  'sqlite',
-  schema:   './dist/db/schema.js',   // compiled output, NOT './src/db/schema.ts'
-  out:      './src/db/migrations',
+  dialect: 'sqlite',
+  schema: './dist/db/schema.js', // compiled output, NOT './src/db/schema.ts'
+  out: './src/db/migrations',
   dbCredentials: {
-    url: process.env.MCP_AGGREGATOR_DB_PATH
-      ?? `${process.env.HOME}/.mcp-aggregator/db.sqlite`,
+    url: process.env.MCP_AGGREGATOR_DB_PATH ?? `${process.env.HOME}/.mcp-aggregator/db.sqlite`,
   },
   // Strict mode: fail if schema and DB diverge rather than silently skipping columns.
   strict: true,
@@ -1102,6 +1116,7 @@ export default defineConfig({
 ```
 
 **Migration file naming:** Use descriptive suffixes that communicate intent:
+
 ```
 0001_initial_schema.sql
 0002_add_audit_log.sql
@@ -1118,8 +1133,8 @@ The database client must be constructed in a strict, ordered sequence. A single 
 ```typescript
 // src/db/client.ts
 import Database from 'better-sqlite3';
-import { drizzle }  from 'drizzle-orm/better-sqlite3';
-import * as schema  from './schema.js';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import * as schema from './schema.js';
 
 export type DrizzleDb = ReturnType<typeof createDb>['db'];
 
@@ -1140,9 +1155,9 @@ export function createDb(dbPath: string): { sqlite: Database.Database; db: Drizz
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('synchronous   = NORMAL');
   sqlite.pragma('busy_timeout  = 5000');
-  sqlite.pragma('cache_size    = -8000');    // 8 MB page cache
+  sqlite.pragma('cache_size    = -8000'); // 8 MB page cache
   sqlite.pragma('foreign_keys  = ON');
-  sqlite.pragma('temp_store    = MEMORY');   // keep temp tables in RAM, not disk
+  sqlite.pragma('temp_store    = MEMORY'); // keep temp tables in RAM, not disk
   sqlite.pragma('mmap_size     = 134217728'); // 128 MB memory-mapped I/O (reduces syscall overhead)
 
   // 4. Wrap in Drizzle — pass the full schema for typed queries.
@@ -1155,6 +1170,7 @@ export function createDb(dbPath: string): { sqlite: Database.Database; db: Drizz
 **Why return `{ sqlite, db }` together:** The raw `better-sqlite3` handle is needed for three operations that Drizzle does not expose: (a) running raw `PRAGMA` statements after open, (b) WAL checkpoint calls (`sqlite.pragma('wal_checkpoint(TRUNCATE)')`), and (c) the `sqlite.close()` call during graceful shutdown. The `db` handle is used for all application queries. Never import one without the other.
 
 **Pragma ordering notes:**
+
 - `journal_mode = WAL` must come before `synchronous = NORMAL`. Setting `synchronous = NORMAL` without WAL defaults to the rollback journal with partial-sync semantics that may corrupt on OS crash.
 - `foreign_keys = ON` must be set on every new connection — SQLite does not persist this setting across connection opens. `better-sqlite3` reuses one connection, but integration tests that call `new Database(':memory:')` will miss it if the initialization sequence is not followed.
 - `mmap_size`: set this on the primary data connection only. Do not set it in the test helpers that open `:memory:` databases — it has no effect on in-memory databases and generates a log warning from SQLite.
@@ -1164,7 +1180,9 @@ export function createDb(dbPath: string): { sqlite: Database.Database; db: Drizz
 ```typescript
 // Called by a setInterval scheduled every 5 minutes, during periods of low write activity.
 function checkpointWal(sqlite: Database.Database): void {
-  const result = sqlite.pragma('wal_checkpoint(PASSIVE)') as [{ busy: number; log: number; checkpointed: number }];
+  const result = sqlite.pragma('wal_checkpoint(PASSIVE)') as [
+    { busy: number; log: number; checkpointed: number },
+  ];
   if (result[0].busy > 0) {
     // Some pages could not be checkpointed because a reader holds a read transaction.
     // This is normal and not an error — the next checkpoint will include them.
@@ -1191,17 +1209,17 @@ export function closeDb(sqlite: Database.Database): void {
 
 `better-sqlite3` transactions are synchronous and automatically roll back on exception. Use `sqlite.transaction(fn)` for all multi-statement operations. The following operations MUST be wrapped in a single transaction:
 
-| Operation | Tables touched | Why atomic |
-|---|---|---|
-| Agent auto-registration (first connect) | `agents` INSERT OR IGNORE, `agents` UPDATE session_count, `agent_guilds` INSERT (hint), `sessions` INSERT | Partial writes leave the session table with no parent agent row or a session_count mismatch |
-| Session open | `agents` UPDATE session_count + last_seen_at, `sessions` INSERT, `session_upstreams` INSERT (one row per upstream) | Session row must exist before upstream rows due to FK |
-| Session close | `sessions` UPDATE disconnected_at, `session_upstreams` UPDATE disconnected_at | Both must reflect the same wall time |
-| `server_tool_cache` replace | `server_tool_cache` DELETE WHERE server_id, `server_tool_cache` INSERT bulk, `upstream_servers` UPDATE cached_tool_count | Readers must never see a partial tool list between delete and re-insert |
-| `PUT /servers/:id/env` | `upstream_env_vars` DELETE WHERE server_id, `upstream_env_vars` INSERT bulk | Same as above |
-| YAML sync (`syncFromYaml`) | Multiple upserts across `upstream_servers`, `guilds`, `agents`, `guild_servers`, `agent_guilds` | Config must be consistent at any point a session start might read it |
-| Crash recovery | `sessions` bulk UPDATE, `session_upstreams` bulk UPDATE | Must be consistent — no partially-recovered state |
-| Session cap eviction | `sessions` DELETE + INSERT | Cap DELETE and new row INSERT must be atomic — the table must never transiently have >1001 rows visible to a reader |
-| Audit log entry | Any write + `audit_log` INSERT | Audit entry and the change it records must commit together |
+| Operation                               | Tables touched                                                                                                           | Why atomic                                                                                                          |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| Agent auto-registration (first connect) | `agents` INSERT OR IGNORE, `agents` UPDATE session_count, `agent_guilds` INSERT (hint), `sessions` INSERT                | Partial writes leave the session table with no parent agent row or a session_count mismatch                         |
+| Session open                            | `agents` UPDATE session_count + last_seen_at, `sessions` INSERT, `session_upstreams` INSERT (one row per upstream)       | Session row must exist before upstream rows due to FK                                                               |
+| Session close                           | `sessions` UPDATE disconnected_at, `session_upstreams` UPDATE disconnected_at                                            | Both must reflect the same wall time                                                                                |
+| `server_tool_cache` replace             | `server_tool_cache` DELETE WHERE server_id, `server_tool_cache` INSERT bulk, `upstream_servers` UPDATE cached_tool_count | Readers must never see a partial tool list between delete and re-insert                                             |
+| `PUT /servers/:id/env`                  | `upstream_env_vars` DELETE WHERE server_id, `upstream_env_vars` INSERT bulk                                              | Same as above                                                                                                       |
+| YAML sync (`syncFromYaml`)              | Multiple upserts across `upstream_servers`, `guilds`, `agents`, `guild_servers`, `agent_guilds`                          | Config must be consistent at any point a session start might read it                                                |
+| Crash recovery                          | `sessions` bulk UPDATE, `session_upstreams` bulk UPDATE                                                                  | Must be consistent — no partially-recovered state                                                                   |
+| Session cap eviction                    | `sessions` DELETE + INSERT                                                                                               | Cap DELETE and new row INSERT must be atomic — the table must never transiently have >1001 rows visible to a reader |
+| Audit log entry                         | Any write + `audit_log` INSERT                                                                                           | Audit entry and the change it records must commit together                                                          |
 
 **Nested transaction pattern:** `better-sqlite3`'s `.transaction()` does not support true nested transactions (SQLite has `SAVEPOINT` but Drizzle does not expose it). If a function that uses a transaction is called from within another transaction, SQLite reuses the outer transaction. This is safe for the patterns above — callers do not need to detect whether they are inside a transaction. However, do not rely on this behaviour for rollback isolation: an exception in an inner function will roll back the entire outer transaction.
 
@@ -1215,14 +1233,20 @@ const insertSession = db.transaction((params: NewSessionParams) => {
     .where(eq(agents.id, params.agentId))
     .run();
 
-  const [session] = db.insert(sessions)
+  const [session] = db
+    .insert(sessions)
     .values({ id: params.sessionId, agentId: params.agentId, connectedAt: params.now })
     .returning()
     .all();
 
   for (const upstream of params.upstreams) {
     db.insert(sessionUpstreams)
-      .values({ id: generateId(), sessionId: session.id, serverId: upstream.serverId, status: upstream.status })
+      .values({
+        id: generateId(),
+        sessionId: session.id,
+        serverId: upstream.serverId,
+        status: upstream.status,
+      })
       .run();
   }
 
@@ -1262,7 +1286,7 @@ ORDER BY ads.added_at ASC
 
 This replaces three separate queries in the `resolveServerSet` algorithm. Because `agent_guilds(agent_id)`, `guild_servers(guild_id)`, and `agent_direct_servers(agent_id)` are all indexed (§5.4 Required indexes), the query plan uses index scans. `EXPLAIN QUERY PLAN` should show no full-table scans.
 
-**Drizzle equivalent:** The `UNION ALL` pattern requires `db.run(sql\`...\`)` with a raw template literal — Drizzle's query builder does not expose `UNION ALL` directly as of drizzle-orm 0.29. This is one of the few cases where a raw SQL helper is acceptable. Wrap it in `ConfigStore.resolveAgentServers(agentId: string): ServerWithVia[]` so the raw SQL is isolated to one method.
+**Drizzle equivalent:** The `UNION ALL` pattern requires `db.run(sql\`...\`)`with a raw template literal — Drizzle's query builder does not expose`UNION ALL`directly as of drizzle-orm 0.29. This is one of the few cases where a raw SQL helper is acceptable. Wrap it in`ConfigStore.resolveAgentServers(agentId: string): ServerWithVia[]` so the raw SQL is isolated to one method.
 
 **2. Static tool list for `GET /agents/:id/tools`:**
 
@@ -1324,6 +1348,7 @@ The `server_tool_cache` table functions as a write-through cache — it is popul
 **Staleness tracking:** `cached_at` is written with each replacement. Consumers of the cache MUST check `cached_at` and flag servers where `cached_at < NOW() - staleness_threshold` as stale. The `GET /agents/:id/tools` and `GET /guilds/:id/tools` responses include a `stale_servers` array (§5.4 Staleness indicator). Do not serve stale cache data silently.
 
 **Cache miss vs. server with zero tools:** A server with no rows in `server_tool_cache` may mean (a) it has never successfully connected, or (b) it connected but returned zero tools. Distinguish these cases using `upstream_servers.last_connected_at`:
+
 - `last_connected_at IS NULL` → never connected → report in `uncached_servers`.
 - `last_connected_at IS NOT NULL` AND no cache rows → connected but returned zero tools → report as a server with `tool_count: 0`, not in `uncached_servers`.
 
@@ -1370,28 +1395,28 @@ The `audit_log` table (§9.6) is append-only and write-heavy. Its design must su
 export const auditLog = sqliteTable(
   'audit_log',
   {
-    id:           text('id').primaryKey(),
-    eventType:    text('event_type').notNull(),                        // e.g. 'server.created'
-    actor:        text('actor').notNull(),                            // source IP or 'operator'
-    targetId:     text('target_id').notNull(),
-    targetType:   text('target_type', {
-                    enum: ['agent', 'guild', 'server', 'session'],
-                  }).notNull(),
-    payload:      text('payload', { mode: 'json' }).$type<AuditPayload>().notNull(),
-    createdAt:    text('created_at').notNull(),
+    id: text('id').primaryKey(),
+    eventType: text('event_type').notNull(), // e.g. 'server.created'
+    actor: text('actor').notNull(), // source IP or 'operator'
+    targetId: text('target_id').notNull(),
+    targetType: text('target_type', {
+      enum: ['agent', 'guild', 'server', 'session'],
+    }).notNull(),
+    payload: text('payload', { mode: 'json' }).$type<AuditPayload>().notNull(),
+    createdAt: text('created_at').notNull(),
   },
   (t) => ({
-    targetIdx:    index('audit_log_target_idx').on(t.targetType, t.targetId),
+    targetIdx: index('audit_log_target_idx').on(t.targetType, t.targetId),
     createdAtIdx: index('audit_log_created_at_idx').on(t.createdAt),
-    actorIdx:     index('audit_log_actor_idx').on(t.actor),
-  }),
+    actorIdx: index('audit_log_actor_idx').on(t.actor),
+  })
 );
 
 export type AuditPayload = {
-  before?: Record<string, unknown>;  // snapshot of affected fields before the change
-  after?:  Record<string, unknown>;  // snapshot of affected fields after the change
-  keys_updated?: string[];           // for env/header writes: only key names, never values
-  reason?: string;                   // for force-close, disable, etc.
+  before?: Record<string, unknown>; // snapshot of affected fields before the change
+  after?: Record<string, unknown>; // snapshot of affected fields after the change
+  keys_updated?: string[]; // for env/header writes: only key names, never values
+  reason?: string; // for force-close, disable, etc.
 };
 ```
 
@@ -1400,14 +1425,16 @@ export type AuditPayload = {
 ```typescript
 function logAudit(
   db: DrizzleDb,
-  entry: Omit<typeof auditLog.$inferInsert, 'id' | 'createdAt'>,
+  entry: Omit<typeof auditLog.$inferInsert, 'id' | 'createdAt'>
 ): void {
   try {
-    db.insert(auditLog).values({
-      id:        generateId(),
-      createdAt: new Date().toISOString(),
-      ...entry,
-    }).run();
+    db.insert(auditLog)
+      .values({
+        id: generateId(),
+        createdAt: new Date().toISOString(),
+        ...entry,
+      })
+      .run();
   } catch (err) {
     // Audit log failure MUST NOT fail the originating mutation.
     // Log at WARN — the transaction already committed; this is a secondary concern.
@@ -1424,7 +1451,7 @@ Call `logAudit` inside the same `db.transaction()` block as the mutation. If the
 // Prune audit log entries older than retentionDays (default 90)
 function pruneAuditLog(sqlite: Database.Database, retentionDays = 90): number {
   const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
-  const stmt   = sqlite.prepare('DELETE FROM audit_log WHERE created_at < ?');
+  const stmt = sqlite.prepare('DELETE FROM audit_log WHERE created_at < ?');
   const result = stmt.run(cutoff);
   return result.changes;
 }
@@ -1477,6 +1504,7 @@ JOIN upstream_servers s ON s.id = ads.server_id;
 ```
 
 Usage:
+
 ```sql
 SELECT * FROM v_agent_effective_servers
 WHERE agent_id = ? AND enabled = 1
@@ -1489,10 +1517,12 @@ ORDER BY agent_added_at ASC, guild_server_added_at ASC;
 // src/db/views.ts
 export function queryAgentEffectiveServers(
   sqlite: Database.Database,
-  agentId: string,
+  agentId: string
 ): AgentEffectiveServerRow[] {
   return sqlite
-    .prepare('SELECT * FROM v_agent_effective_servers WHERE agent_id = ? AND enabled = 1 ORDER BY agent_added_at ASC, guild_server_added_at ASC')
+    .prepare(
+      'SELECT * FROM v_agent_effective_servers WHERE agent_id = ? AND enabled = 1 ORDER BY agent_added_at ASC, guild_server_added_at ASC'
+    )
     .all(agentId) as AgentEffectiveServerRow[];
 }
 ```
@@ -1559,19 +1589,20 @@ Single-page React app served at `/`. **Primary purpose: observability.** Configu
 
 **Pages:**
 
-| Path | Purpose |
-|------|---------|
-| `/` | Dashboard — live agent status, active sessions, upstream health |
-| `/agents` | Agent list — connection state, guild badges, tool count, last seen |
-| `/agents/:id` | Agent detail — full tool list with source attribution, session history, upstream status per server |
-| `/guilds` | Guild list — server count, agent count, tool count |
-| `/guilds/:id` | Guild detail — member servers, member agents, full tool preview |
-| `/servers` | Server list — transport type, enabled state, which guilds use it |
-| `/servers/:id` | Server detail — config (from YAML), live connection status across sessions, recent errors |
-| `/sessions` | Session monitor — live and recent sessions, per-upstream connection status |
-| `/tools` | Tool browser — full tool catalog, filterable by guild/server/agent |
+| Path           | Purpose                                                                                            |
+| -------------- | -------------------------------------------------------------------------------------------------- |
+| `/`            | Dashboard — live agent status, active sessions, upstream health                                    |
+| `/agents`      | Agent list — connection state, guild badges, tool count, last seen                                 |
+| `/agents/:id`  | Agent detail — full tool list with source attribution, session history, upstream status per server |
+| `/guilds`      | Guild list — server count, agent count, tool count                                                 |
+| `/guilds/:id`  | Guild detail — member servers, member agents, full tool preview                                    |
+| `/servers`     | Server list — transport type, enabled state, which guilds use it                                   |
+| `/servers/:id` | Server detail — config (from YAML), live connection status across sessions, recent errors          |
+| `/sessions`    | Session monitor — live and recent sessions, per-upstream connection status                         |
+| `/tools`       | Tool browser — full tool catalog, filterable by guild/server/agent                                 |
 
 **XSS prevention requirements:** All user-controlled string values rendered in the React UI MUST be treated as untrusted text:
+
 - `display_name`: max 200 chars, printable Unicode only (no control chars), validated at API write time; rejected with 422 if over length or contains control characters.
 - `clientInfo.name` / `clientInfo.version`: truncated to 200 chars before storage. Never rendered as raw HTML — always as text content.
 - `upstream_statuses`, error messages from upstreams: rendered as plain text, never `dangerouslySetInnerHTML`.
@@ -1580,6 +1611,7 @@ Single-page React app served at `/`. **Primary purpose: observability.** Configu
 - The React app MUST NOT use `dangerouslySetInnerHTML` for any field sourced from the database or upstream connections.
 
 **Polling behaviour constraints:**
+
 - Auto-refetch is paused when the browser tab is not visible (using the `visibilitychange` API / TanStack Query `refetchIntervalInBackground: false`). This prevents background tabs from generating unnecessary SQLite read traffic.
 - On three consecutive failed fetches (network error or 5xx), refetch interval backs off to 30s with jitter (`±5s`) and remains there until a successful fetch.
 - Dashboard summary stats (`/health` endpoint) are fetched at a coarser interval (30s) since they are less time-sensitive. The session monitor page retains the 5s interval while visible.
@@ -1629,14 +1661,14 @@ The allowed dependency directions are strictly layered. Any dependency that poin
 
 **Prohibited couplings:**
 
-| Prohibited | Reason |
-|---|---|
-| `AggregatorEngine` → Express `Request`/`Response` types | Engine is HTTP-agnostic; HTTP concerns live in the MCP handler |
-| `AggregatorEngine` → drizzle-orm / better-sqlite3 | Engine uses `IConfigStore`; never raw SQL |
-| `IUpstreamManager` → `IConfigStore` | Upstream manager receives `ResolvedServerConfig` values; it never reads the DB directly |
-| REST API route handlers → `IUpstreamManager` | Route handlers use `IConfigStore` for reads and `IAggregatorEngine` for session ops; never the upstream manager directly |
-| `IConfigLoader` → `IConfigStore` | Config loader parses files and returns `ResolvedConfig`; DB sync is done by the entry point after loading |
-| Any layer → `process.env` (outside entry point and `IConfigLoader`) | Env var reads are centralised in the config loader; all other code uses `ResolvedConfig` values |
+| Prohibited                                                          | Reason                                                                                                                   |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `AggregatorEngine` → Express `Request`/`Response` types             | Engine is HTTP-agnostic; HTTP concerns live in the MCP handler                                                           |
+| `AggregatorEngine` → drizzle-orm / better-sqlite3                   | Engine uses `IConfigStore`; never raw SQL                                                                                |
+| `IUpstreamManager` → `IConfigStore`                                 | Upstream manager receives `ResolvedServerConfig` values; it never reads the DB directly                                  |
+| REST API route handlers → `IUpstreamManager`                        | Route handlers use `IConfigStore` for reads and `IAggregatorEngine` for session ops; never the upstream manager directly |
+| `IConfigLoader` → `IConfigStore`                                    | Config loader parses files and returns `ResolvedConfig`; DB sync is done by the entry point after loading                |
+| Any layer → `process.env` (outside entry point and `IConfigLoader`) | Env var reads are centralised in the config loader; all other code uses `ResolvedConfig` values                          |
 
 ---
 
@@ -1770,11 +1802,13 @@ All tool names are prefixed with the upstream server's `alias` using double-unde
 **Format:** `{alias}__{original_tool_name}`
 
 **Examples:**
+
 - `github__create_issue`
 - `browser__navigate`
 - `slack__send_message`
 
 Rules:
+
 - `alias` must match `[a-z][a-z0-9-]*` (letters, digits, hyphens; no underscores). Excluding underscores makes the `__` separator unambiguous and keeps `mcp+{alias}://` a valid URI scheme per RFC 3986 §3.1.
 - Original tool name preserved exactly
 - Each tool gets an annotation: `x-mcp-aggregator-source: { alias, server_id, guild_id }`
@@ -1793,11 +1827,13 @@ mcp+{alias}:/{percent-encoded original URI}
 ```
 
 Examples:
+
 - `file:///tmp/foo.ts` → `mcp+github:/file%3A%2F%2F%2Ftmp%2Ffoo.ts`
 - `doc-123` → `mcp+github:/doc-123`
 - `urn:uuid:abc` → `mcp+github:/urn%3Auuid%3Aabc`
 
 On inbound `resources/read`:
+
 1. Match `mcp+{alias}:` scheme to identify upstream
 2. Percent-decode the path to recover the exact original URI string
 3. Forward the decoded URI in the `resources/read` request to the upstream
@@ -1812,20 +1848,21 @@ This encoding is lossless for all URI forms (path-only, URNs, opaque IDs, absolu
 
 Any config change triggers a reload cycle for affected agents:
 
-| Change | Affected agents |
-|--------|----------------|
-| Add server to guild | All agents with that guild in their membership |
-| Remove server from guild | All agents with that guild in their membership |
-| Agent guild added | That agent only |
-| Agent guild removed | That agent only |
-| Add agent direct server | That agent only |
-| Remove agent direct server | That agent only |
+| Change                                  | Affected agents                                |
+| --------------------------------------- | ---------------------------------------------- |
+| Add server to guild                     | All agents with that guild in their membership |
+| Remove server from guild                | All agents with that guild in their membership |
+| Agent guild added                       | That agent only                                |
+| Agent guild removed                     | That agent only                                |
+| Add agent direct server                 | That agent only                                |
+| Remove agent direct server              | That agent only                                |
 | Enable/disable upstream server globally | All agents using it (across all guilds/direct) |
-| Upstream server config change | All agents using it (reconnect) |
+| Upstream server config change           | All agents using it (reconnect)                |
 
 **File change debounce:** The chokidar watcher MUST debounce `change` events with a trailing delay of `MCP_AGGREGATOR_RELOAD_DEBOUNCE_MS` (default: `300` ms). Only the last event within a debounce window triggers a reload. This prevents multiple rapid saves (common with editors that write via temp-file rename or auto-save on every keystroke) from triggering redundant reconnect cycles.
 
 **Reload cycle:**
+
 1. REST API writes change to SQLite
 2. Publishes change event to in-process event bus (keyed by affected agent IDs)
 3. Aggregator Engine receives event, reconnects affected upstreams per session
@@ -1843,14 +1880,14 @@ Both paths converge on the same event bus and the same reconnect logic. The YAML
 
 **What can be changed via REST API vs YAML only:**
 
-| Change type | REST API | YAML |
-|---|---|---|
-| Agent guild membership | Yes (auto-registered agents; YAML-defined overwritten on reload) | Yes |
-| Agent direct servers | Yes | Yes |
-| Server enable/disable | Yes (`POST /servers/:id/enable\|disable`) | No |
-| Server transport/command/args/url | No (read-only via API) | Yes |
+| Change type                       | REST API                                                         | YAML |
+| --------------------------------- | ---------------------------------------------------------------- | ---- |
+| Agent guild membership            | Yes (auto-registered agents; YAML-defined overwritten on reload) | Yes  |
+| Agent direct servers              | Yes                                                              | Yes  |
+| Server enable/disable             | Yes (`POST /servers/:id/enable\|disable`)                        | No   |
+| Server transport/command/args/url | No (read-only via API)                                           | Yes  |
 
-**In-flight calls during reload:** If a `tools/call` is in-flight against an upstream that is being torn down, the upstream connection is closed after the response returns (or after the upstream's `timeout_ms` if no response arrives). The call is not cancelled mid-flight. Any `tools/call` that arrives for a removed upstream *after* the reload cycle completes returns `isError: true` per §12.5.
+**In-flight calls during reload:** If a `tools/call` is in-flight against an upstream that is being torn down, the upstream connection is closed after the response returns (or after the upstream's `timeout_ms` if no response arrives). The call is not cancelled mid-flight. Any `tools/call` that arrives for a removed upstream _after_ the reload cycle completes returns `isError: true` per §12.5.
 
 **In-flight call tracking:** The connection manager MUST maintain a per-upstream-connection reference count of outstanding `tools/call` requests. When a reload triggers teardown of an upstream connection, the teardown is deferred until the reference count reaches 0, or until the upstream's configured `timeout_ms` elapses (whichever comes first). During this drain window, new `tools/call` requests targeting the old connection are rejected immediately with `isError: true` and message `"Upstream 'X' is being reloaded"`. New requests for that upstream are held in a 500 ms queue pending the new connection coming up; if the new connection does not come up within that queue window, the held calls are rejected.
 
@@ -1902,7 +1939,7 @@ The in-process event bus (`src/events/bus.ts`) is a **typed wrapper** over Node'
 export interface EventMap {
   /** Fired after YAML sync or REST API write; engine calls reloadSessions */
   'config.changed': {
-    affectedAgentIds: Set<string>;    // empty set = all agents (e.g. global server disable)
+    affectedAgentIds: Set<string>; // empty set = all agents (e.g. global server disable)
     changedServerIds: Set<string>;
     source: 'yaml' | 'api';
   };
@@ -1960,20 +1997,21 @@ Base URL: `http://localhost:4000/api`
 All REST API responses are JSON (`Content-Type: application/json`).
 
 **Error responses** always use:
+
 ```json
 { "error": "Human-readable message", "code": "machine_readable_code" }
 ```
 
-| HTTP status | When used |
-|---|---|
-| `400` | Malformed request or invalid parameter |
-| `404` | Resource not found |
-| `409` | Conflict (alias taken, reserved slug) |
-| `415` | Unsupported Media Type (wrong Content-Type on write endpoint) |
-| `422` | Semantically invalid (e.g. updating immutable `slug`) |
-| `429` | Rate limit exceeded |
-| `500` | Unexpected server error |
-| `503` | Service temporarily unavailable (DB busy, startup incomplete) |
+| HTTP status | When used                                                     |
+| ----------- | ------------------------------------------------------------- |
+| `400`       | Malformed request or invalid parameter                        |
+| `404`       | Resource not found                                            |
+| `409`       | Conflict (alias taken, reserved slug)                         |
+| `415`       | Unsupported Media Type (wrong Content-Type on write endpoint) |
+| `422`       | Semantically invalid (e.g. updating immutable `slug`)         |
+| `429`       | Rate limit exceeded                                           |
+| `500`       | Unexpected server error                                       |
+| `503`       | Service temporarily unavailable (DB busy, startup incomplete) |
 
 The `code` field uses snake_case strings. These are stable — callers may rely on them. See §9.0.1 for the complete taxonomy.
 
@@ -1982,6 +2020,7 @@ The `code` field uses snake_case strings. These are stable — callers may rely 
 **CSRF protection:** REST API write endpoints (POST, PUT, PATCH, DELETE) MUST require `Content-Type: application/json` and reject `application/x-www-form-urlencoded` or `multipart/form-data` with HTTP 415. This provides CSRF mitigation by ensuring form-based cross-origin submissions cannot trigger state changes.
 
 **Rate limiting:**
+
 - Agent auto-registration (`/mcp/agents/:id` on first connect): 60 new registrations/minute/source IP → 429 if exceeded.
 - `POST /servers/:id/test`: 10 concurrent in-flight system-wide, 2/minute/source IP → 429.
 - All REST API write endpoints: 120 requests/minute/source IP in unauthenticated mode → 429.
@@ -1994,42 +2033,45 @@ All 429 responses MUST include rate limit headers (see §9.0.3).
 
 All machine-readable `code` values returned by the API. Implementors MUST use exactly these strings — do not invent new codes without adding them here.
 
-| Code | HTTP status | Meaning |
-|------|-------------|---------|
-| `not_found` | 404 | The requested resource does not exist |
-| `bad_request` | 400 | Malformed JSON body or missing required field |
-| `invalid_field` | 400 | A field value fails validation (type, length, format) |
-| `invalid_agent_id` | 400 | Agent ID does not match `^[a-z0-9][a-z0-9-]{0,62}$` |
-| `invalid_color` | 422 | Guild color does not match `^#[0-9a-fA-F]{6}$` |
-| `invalid_alias` | 422 | Server alias does not match `[a-z][a-z0-9-]*` |
-| `alias_conflict` | 409 | The alias is already taken by another server |
-| `alias_reserved` | 409 | The alias is a reserved value (e.g. `mcp`) |
-| `slug_immutable` | 422 | Attempt to change a guild's `slug` after creation |
-| `system_resource` | 409 | Attempt to delete or mutate a system-managed resource (e.g. `default` guild) |
-| `yaml_managed` | 409 | Attempt to delete a resource that is managed by `mcp.yaml` |
-| `already_member` | 409 | Agent is already in the specified guild |
-| `not_member` | 404 | Agent is not in the specified guild (on DELETE) |
-| `server_already_in_guild` | 409 | Server is already assigned to the specified guild |
-| `server_not_in_guild` | 404 | Server is not in the specified guild (on DELETE) |
-| `direct_server_already_assigned` | 409 | Server is already directly assigned to the agent |
-| `direct_server_not_assigned` | 404 | Server is not directly assigned to the agent (on DELETE) |
-| `session_not_found` | 404 | The specified session ID does not exist |
-| `session_already_closed` | 200 | Force-close called on an already-closed session (not an error — returns 200) |
-| `transport_incompatible` | 422 | Field is incompatible with the server's transport type (e.g. `command` on an HTTP server) |
-| `upstream_test_failed` | 200 | Live connection test completed but the upstream returned an error (not an HTTP error) |
-| `upstream_test_timeout` | 200 | Live connection test timed out (not an HTTP error — see §9.0.4) |
-| `db_busy` | 503 | SQLite write contention exceeded `busy_timeout`; retry after `Retry-After` |
-| `rate_limited` | 429 | Rate limit exceeded; retry after `Retry-After` |
-| `unsupported_media_type` | 415 | Write endpoint received non-JSON `Content-Type` |
+| Code                             | HTTP status | Meaning                                                                                   |
+| -------------------------------- | ----------- | ----------------------------------------------------------------------------------------- |
+| `not_found`                      | 404         | The requested resource does not exist                                                     |
+| `bad_request`                    | 400         | Malformed JSON body or missing required field                                             |
+| `invalid_field`                  | 400         | A field value fails validation (type, length, format)                                     |
+| `invalid_agent_id`               | 400         | Agent ID does not match `^[a-z0-9][a-z0-9-]{0,62}$`                                       |
+| `invalid_color`                  | 422         | Guild color does not match `^#[0-9a-fA-F]{6}$`                                            |
+| `invalid_alias`                  | 422         | Server alias does not match `[a-z][a-z0-9-]*`                                             |
+| `alias_conflict`                 | 409         | The alias is already taken by another server                                              |
+| `alias_reserved`                 | 409         | The alias is a reserved value (e.g. `mcp`)                                                |
+| `slug_immutable`                 | 422         | Attempt to change a guild's `slug` after creation                                         |
+| `system_resource`                | 409         | Attempt to delete or mutate a system-managed resource (e.g. `default` guild)              |
+| `yaml_managed`                   | 409         | Attempt to delete a resource that is managed by `mcp.yaml`                                |
+| `already_member`                 | 409         | Agent is already in the specified guild                                                   |
+| `not_member`                     | 404         | Agent is not in the specified guild (on DELETE)                                           |
+| `server_already_in_guild`        | 409         | Server is already assigned to the specified guild                                         |
+| `server_not_in_guild`            | 404         | Server is not in the specified guild (on DELETE)                                          |
+| `direct_server_already_assigned` | 409         | Server is already directly assigned to the agent                                          |
+| `direct_server_not_assigned`     | 404         | Server is not directly assigned to the agent (on DELETE)                                  |
+| `session_not_found`              | 404         | The specified session ID does not exist                                                   |
+| `session_already_closed`         | 200         | Force-close called on an already-closed session (not an error — returns 200)              |
+| `transport_incompatible`         | 422         | Field is incompatible with the server's transport type (e.g. `command` on an HTTP server) |
+| `upstream_test_failed`           | 200         | Live connection test completed but the upstream returned an error (not an HTTP error)     |
+| `upstream_test_timeout`          | 200         | Live connection test timed out (not an HTTP error — see §9.0.4)                           |
+| `db_busy`                        | 503         | SQLite write contention exceeded `busy_timeout`; retry after `Retry-After`                |
+| `rate_limited`                   | 429         | Rate limit exceeded; retry after `Retry-After`                                            |
+| `unsupported_media_type`         | 415         | Write endpoint received non-JSON `Content-Type`                                           |
 
 ### 9.0.2 Cursor-Based Pagination Contract
 
 Although v1 list endpoints return the full result set, all list response shapes MUST include a `meta` object so the UI and API clients can be written once and work in both v1 (full set) and v2 (paginated). Implementors MUST NOT omit `meta` from list responses.
 
 **v1 list response envelope:**
+
 ```json
 {
-  "data": [ /* array of resource objects */ ],
+  "data": [
+    /* array of resource objects */
+  ],
   "meta": {
     "total": 42,
     "cursor": null,
@@ -2042,17 +2084,20 @@ Although v1 list endpoints return the full result set, all list response shapes 
 
 Pagination is opt-in via query parameters. When absent, the full result set is returned (v1 behaviour).
 
-| Query parameter | Type | Description |
-|-----------------|------|-------------|
-| `limit` | integer 1–500, default 100 | Maximum number of items to return |
-| `cursor` | opaque string | Continuation cursor from a previous response's `meta.cursor` |
-| `sort` | string | Field name to sort by (see §9.0.5 for allowed values per resource) |
-| `order` | `asc` \| `desc` | Sort direction (default `asc`) |
+| Query parameter | Type                       | Description                                                        |
+| --------------- | -------------------------- | ------------------------------------------------------------------ |
+| `limit`         | integer 1–500, default 100 | Maximum number of items to return                                  |
+| `cursor`        | opaque string              | Continuation cursor from a previous response's `meta.cursor`       |
+| `sort`          | string                     | Field name to sort by (see §9.0.5 for allowed values per resource) |
+| `order`         | `asc` \| `desc`            | Sort direction (default `asc`)                                     |
 
 **v2 paginated response envelope:**
+
 ```json
 {
-  "data": [ /* resource objects */ ],
+  "data": [
+    /* resource objects */
+  ],
   "meta": {
     "total": 1042,
     "limit": 100,
@@ -2063,6 +2108,7 @@ Pagination is opt-in via query parameters. When absent, the full result set is r
 ```
 
 **Cursor semantics:**
+
 - Cursors are opaque base64-encoded JSON objects. Clients MUST treat them as opaque strings.
 - Cursor contents (implementation detail, not part of the API contract): `{ "id": "<last_seen_id>", "field": "<sort_field>", "value": "<last_seen_sort_value>", "dir": "asc"|"desc" }`.
 - Cursors encode a keyset position, not an offset. This ensures stable results under concurrent inserts and deletes.
@@ -2076,20 +2122,21 @@ Pagination is opt-in via query parameters. When absent, the full result set is r
 
 All responses from rate-limited endpoints MUST include these headers, regardless of whether the request was allowed or rejected:
 
-| Header | Type | Description |
-|--------|------|-------------|
-| `X-RateLimit-Limit` | integer | Maximum requests allowed in the window |
-| `X-RateLimit-Remaining` | integer | Requests remaining in the current window |
-| `X-RateLimit-Reset` | Unix timestamp (seconds) | When the current window resets |
-| `X-RateLimit-Window` | integer (seconds) | Duration of the rate limit window |
+| Header                  | Type                     | Description                              |
+| ----------------------- | ------------------------ | ---------------------------------------- |
+| `X-RateLimit-Limit`     | integer                  | Maximum requests allowed in the window   |
+| `X-RateLimit-Remaining` | integer                  | Requests remaining in the current window |
+| `X-RateLimit-Reset`     | Unix timestamp (seconds) | When the current window resets           |
+| `X-RateLimit-Window`    | integer (seconds)        | Duration of the rate limit window        |
 
 When a request is rejected (HTTP 429), the response MUST also include:
 
-| Header | Type | Description |
-|--------|------|-------------|
+| Header        | Type              | Description                              |
+| ------------- | ----------------- | ---------------------------------------- |
 | `Retry-After` | integer (seconds) | How many seconds to wait before retrying |
 
 **Example 429 response:**
+
 ```http
 HTTP/1.1 429 Too Many Requests
 Content-Type: application/json
@@ -2112,6 +2159,7 @@ Rate limit headers MUST be added by Express middleware applied before all REST A
 The test-connection endpoint makes a live upstream connection. It always returns HTTP 200 — connection success or failure is communicated in the response body, not the HTTP status code (because the HTTP request itself succeeded).
 
 **Success response:**
+
 ```json
 {
   "status": "connected",
@@ -2119,9 +2167,7 @@ The test-connection endpoint makes a live upstream connection. It always returns
   "tool_count": 14,
   "resource_count": 0,
   "prompt_count": 2,
-  "tools": [
-    { "name": "create_issue", "description": "Create a GitHub issue" }
-  ],
+  "tools": [{ "name": "create_issue", "description": "Create a GitHub issue" }],
   "latency_ms": 312,
   "server_info": {
     "name": "github-mcp-server",
@@ -2131,6 +2177,7 @@ The test-connection endpoint makes a live upstream connection. It always returns
 ```
 
 **Failure response (upstream error — still HTTP 200):**
+
 ```json
 {
   "status": "error",
@@ -2141,6 +2188,7 @@ The test-connection endpoint makes a live upstream connection. It always returns
 ```
 
 **Timeout response (still HTTP 200):**
+
 ```json
 {
   "status": "timeout",
@@ -2157,25 +2205,26 @@ All list endpoints accept the following common query parameters. Endpoint-specif
 
 **Common filtering parameters:**
 
-| Parameter | Applies to | Description |
-|-----------|-----------|-------------|
-| `q` | `/agents`, `/guilds`, `/servers` | Full-text search on `name`/`id`/`display_name`. Case-insensitive substring match. |
-| `status` | `/agents`, `/sessions` | Filter by status. `/agents`: `connected`, `idle`. `/sessions`: `active`, `closed`. |
-| `yaml_managed` | `/agents`, `/guilds`, `/servers` | `true`/`false` — filter by YAML management state. |
-| `guild` | `/agents`, `/servers` | Filter agents/servers by guild slug (e.g. `?guild=qa-engineer`). |
+| Parameter      | Applies to                       | Description                                                                        |
+| -------------- | -------------------------------- | ---------------------------------------------------------------------------------- |
+| `q`            | `/agents`, `/guilds`, `/servers` | Full-text search on `name`/`id`/`display_name`. Case-insensitive substring match.  |
+| `status`       | `/agents`, `/sessions`           | Filter by status. `/agents`: `connected`, `idle`. `/sessions`: `active`, `closed`. |
+| `yaml_managed` | `/agents`, `/guilds`, `/servers` | `true`/`false` — filter by YAML management state.                                  |
+| `guild`        | `/agents`, `/servers`            | Filter agents/servers by guild slug (e.g. `?guild=qa-engineer`).                   |
 
 **Sort fields by resource:**
 
-| Resource | Sortable fields | Default |
-|----------|----------------|---------|
-| `agents` | `id`, `display_name`, `last_seen_at`, `session_count`, `tool_count` | `id asc` |
-| `guilds` | `slug`, `name`, `created_at` | `slug asc` |
-| `servers` | `alias`, `name`, `created_at`, `last_connected_at`, `consecutive_errors` | `alias asc` |
-| `sessions` | `connected_at`, `duration`, `tool_count` | `connected_at desc` |
+| Resource   | Sortable fields                                                          | Default             |
+| ---------- | ------------------------------------------------------------------------ | ------------------- |
+| `agents`   | `id`, `display_name`, `last_seen_at`, `session_count`, `tool_count`      | `id asc`            |
+| `guilds`   | `slug`, `name`, `created_at`                                             | `slug asc`          |
+| `servers`  | `alias`, `name`, `created_at`, `last_connected_at`, `consecutive_errors` | `alias asc`         |
+| `sessions` | `connected_at`, `duration`, `tool_count`                                 | `connected_at desc` |
 
 Unknown sort fields return 400 with `code: "invalid_sort_field"`. Unknown filter values return an empty `data` array (not an error).
 
 **Example:**
+
 ```
 GET /api/agents?status=connected&guild=qa-engineer&sort=last_seen_at&order=desc&limit=20
 ```
@@ -2189,12 +2238,14 @@ Write operations that trigger hot-reloads (guild assignments, server enable/disa
 **Header:** `Idempotency-Key: <client-generated UUID or unique string, max 128 chars>`
 
 **Behaviour:**
+
 - On first request: execute normally, cache the response keyed by `(method, path, Idempotency-Key)` for 24 hours.
 - On retry with same key: return the cached response with added header `Idempotency-Replay: true`. The operation is NOT re-executed.
 - Cache is stored in-memory (SQLite `idempotency_cache` table for durability across restarts).
 - If the original request is still in flight when a retry arrives: return 409 with `code: "idempotency_conflict"` and `Retry-After: 2`.
 
 **Example:**
+
 ```http
 POST /api/agents/garry/guilds HTTP/1.1
 Content-Type: application/json
@@ -2210,12 +2261,14 @@ Idempotency keys are optional. Without them, callers must handle 409 `already_me
 **v1 position:** The API is served at `/api` with no version prefix. Breaking changes are avoided by additive evolution: new fields are added to existing response shapes, new optional parameters to existing endpoints, new endpoints for new functionality. Removing fields or changing field types constitutes a breaking change and requires a major version bump.
 
 **Breaking change policy:**
+
 1. A `/api/v2` prefix is introduced when the first breaking change is needed.
 2. `/api` (unversioned) continues to serve the v1 contract for a deprecation period of at least 6 months.
 3. Deprecated endpoints respond with a `Deprecation: true` header and a `Link` header pointing to the migration guide.
 4. After the deprecation period, `/api` is aliased to `/api/v2`.
 
 **Non-breaking changes (safe to ship without version bump):**
+
 - Adding new optional request fields (ignored by v1 clients)
 - Adding new response fields (ignored by clients that don't know about them)
 - Adding new endpoints
@@ -2223,6 +2276,7 @@ Idempotency keys are optional. Without them, callers must handle 409 `already_me
 - Relaxing validation rules (accepting more inputs)
 
 **Breaking changes (require `/api/v2`):**
+
 - Removing or renaming response fields
 - Changing a field's type
 - Making previously optional fields required
@@ -2241,6 +2295,7 @@ The web UI requires real-time updates for the session monitor and dashboard. In 
 **Endpoint:** `GET /api/events`
 
 **Response headers:**
+
 ```http
 Content-Type: text/event-stream
 Cache-Control: no-cache
@@ -2251,6 +2306,7 @@ X-Accel-Buffering: no
 The `X-Accel-Buffering: no` header instructs nginx to disable response buffering for this endpoint specifically (overrides the default proxy configuration).
 
 **Event stream format** (standard SSE):
+
 ```
 id: <event-id>
 event: <event-type>
@@ -2260,15 +2316,15 @@ data: <JSON payload>
 
 **Event types and payloads:**
 
-| Event type | Trigger | Payload |
-|------------|---------|---------|
-| `session.opened` | New MCP session established | `{ "session_id": "uuid", "agent_id": "garry" \| null, "guild_slugs": [...] \| null, "tool_count": 67, "connected_at": "ISO8601" }` |
-| `session.closed` | Session ended (clean or force-close) | `{ "session_id": "uuid", "agent_id": "garry" \| null, "reason": "client_disconnect" \| "force_close" \| "reload", "duration_ms": 3600000 }` |
-| `upstream.error` | Upstream connection failed (keepalive ping) | `{ "session_id": "uuid", "alias": "github", "server_id": "uuid", "error": "timeout" }` |
-| `upstream.recovered` | Previously-errored upstream recovered | `{ "session_id": "uuid", "alias": "github", "server_id": "uuid" }` |
-| `config.reloaded` | YAML file reloaded or REST API write triggered reload | `{ "source": "yaml" \| "api", "affected_agent_count": 3 }` |
-| `agent.registered` | New agent auto-registered on first connect | `{ "agent_id": "new-bot", "registration_source": "auto" }` |
-| `ping` | Keepalive (every 30 seconds) | `{}` |
+| Event type           | Trigger                                               | Payload                                                                                                                                     |
+| -------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session.opened`     | New MCP session established                           | `{ "session_id": "uuid", "agent_id": "garry" \| null, "guild_slugs": [...] \| null, "tool_count": 67, "connected_at": "ISO8601" }`          |
+| `session.closed`     | Session ended (clean or force-close)                  | `{ "session_id": "uuid", "agent_id": "garry" \| null, "reason": "client_disconnect" \| "force_close" \| "reload", "duration_ms": 3600000 }` |
+| `upstream.error`     | Upstream connection failed (keepalive ping)           | `{ "session_id": "uuid", "alias": "github", "server_id": "uuid", "error": "timeout" }`                                                      |
+| `upstream.recovered` | Previously-errored upstream recovered                 | `{ "session_id": "uuid", "alias": "github", "server_id": "uuid" }`                                                                          |
+| `config.reloaded`    | YAML file reloaded or REST API write triggered reload | `{ "source": "yaml" \| "api", "affected_agent_count": 3 }`                                                                                  |
+| `agent.registered`   | New agent auto-registered on first connect            | `{ "agent_id": "new-bot", "registration_source": "auto" }`                                                                                  |
+| `ping`               | Keepalive (every 30 seconds)                          | `{}`                                                                                                                                        |
 
 **Reconnection:** Clients MUST use the `id` field from each event and send `Last-Event-ID` on reconnect. The server MUST replay events from the last seen ID for up to 60 seconds of missed events (buffered in-memory, rolling 60-second window). Events older than the buffer are not replayed; the client receives a `resync` pseudo-event indicating it should perform a full GET to refresh its state.
 
@@ -2278,79 +2334,79 @@ data: <JSON payload>
 
 ### Agents
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/agents` | List all agents with status, guild memberships, tool counts. Supports `?status=`, `?guild=`, `?q=`, `?sort=`, `?order=` (see §9.0.5). Returns `{ data: [...], meta: { total, cursor, has_more } }`. |
-| `POST` | `/agents` | Pre-register an agent (optional; agents also auto-register on connect). Idempotency-Key supported. |
-| `GET` | `/agents/:id` | Agent detail: guilds, direct servers, tool count, session history |
-| `PATCH` | `/agents/:id` | Partial update: `display_name` only. `id` is immutable — returns 422 if included. Only fields present in the body are updated; absent fields are unchanged. |
-| `DELETE` | `/agents/:id` | Remove agent record. Returns 409 if `yaml_managed = true`. |
-| `GET` | `/agents/:id/sessions` | Session history for this agent. Returns `{ data: [...], meta: { total, cursor, has_more } }`. |
-| `GET` | `/agents/:id/tools` | Aggregated tool list for this agent — see §9.1 |
-| `GET` | `/agents/:id/guilds` | List guilds this agent belongs to. Returns `{ data: [...], meta: { total } }`. |
-| `POST` | `/agents/:id/guilds` | Add agent to a guild `{ "guild_id": "uuid" }`. Returns 409 `already_member` if already assigned. Idempotency-Key supported. |
-| `PUT` | `/agents/:id/guilds` | **Bulk replace** guild assignments. Body: `{ "guild_ids": ["uuid1", "uuid2"] }`. Atomically removes all current guild assignments and assigns the specified guilds in one transaction. Returns 204 on success. Returns 422 if any `guild_id` is unknown. If the array is empty, all guild assignments are removed. YAML-managed guild assignments are NOT protected from bulk replace — use this endpoint only on auto-registered agents. |
-| `DELETE` | `/agents/:id/guilds/:guild-id` | Remove agent from a guild. Returns 404 `not_member` if not assigned. Idempotency-Key supported. |
-| `GET` | `/agents/:id/servers` | List direct server assignments. Returns `{ data: [...], meta: { total } }`. |
-| `POST` | `/agents/:id/servers` | Add a direct server assignment `{ "server_id": "uuid" }`. Returns 409 `direct_server_already_assigned` if already assigned. Idempotency-Key supported. |
-| `DELETE` | `/agents/:id/servers/:server-id` | Remove a direct server assignment. Returns 404 `direct_server_not_assigned` if not assigned. Idempotency-Key supported. |
+| Method   | Path                             | Description                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/agents`                        | List all agents with status, guild memberships, tool counts. Supports `?status=`, `?guild=`, `?q=`, `?sort=`, `?order=` (see §9.0.5). Returns `{ data: [...], meta: { total, cursor, has_more } }`.                                                                                                                                                                                                                                       |
+| `POST`   | `/agents`                        | Pre-register an agent (optional; agents also auto-register on connect). Idempotency-Key supported.                                                                                                                                                                                                                                                                                                                                        |
+| `GET`    | `/agents/:id`                    | Agent detail: guilds, direct servers, tool count, session history                                                                                                                                                                                                                                                                                                                                                                         |
+| `PATCH`  | `/agents/:id`                    | Partial update: `display_name` only. `id` is immutable — returns 422 if included. Only fields present in the body are updated; absent fields are unchanged.                                                                                                                                                                                                                                                                               |
+| `DELETE` | `/agents/:id`                    | Remove agent record. Returns 409 if `yaml_managed = true`.                                                                                                                                                                                                                                                                                                                                                                                |
+| `GET`    | `/agents/:id/sessions`           | Session history for this agent. Returns `{ data: [...], meta: { total, cursor, has_more } }`.                                                                                                                                                                                                                                                                                                                                             |
+| `GET`    | `/agents/:id/tools`              | Aggregated tool list for this agent — see §9.1                                                                                                                                                                                                                                                                                                                                                                                            |
+| `GET`    | `/agents/:id/guilds`             | List guilds this agent belongs to. Returns `{ data: [...], meta: { total } }`.                                                                                                                                                                                                                                                                                                                                                            |
+| `POST`   | `/agents/:id/guilds`             | Add agent to a guild `{ "guild_id": "uuid" }`. Returns 409 `already_member` if already assigned. Idempotency-Key supported.                                                                                                                                                                                                                                                                                                               |
+| `PUT`    | `/agents/:id/guilds`             | **Bulk replace** guild assignments. Body: `{ "guild_ids": ["uuid1", "uuid2"] }`. Atomically removes all current guild assignments and assigns the specified guilds in one transaction. Returns 204 on success. Returns 422 if any `guild_id` is unknown. If the array is empty, all guild assignments are removed. YAML-managed guild assignments are NOT protected from bulk replace — use this endpoint only on auto-registered agents. |
+| `DELETE` | `/agents/:id/guilds/:guild-id`   | Remove agent from a guild. Returns 404 `not_member` if not assigned. Idempotency-Key supported.                                                                                                                                                                                                                                                                                                                                           |
+| `GET`    | `/agents/:id/servers`            | List direct server assignments. Returns `{ data: [...], meta: { total } }`.                                                                                                                                                                                                                                                                                                                                                               |
+| `POST`   | `/agents/:id/servers`            | Add a direct server assignment `{ "server_id": "uuid" }`. Returns 409 `direct_server_already_assigned` if already assigned. Idempotency-Key supported.                                                                                                                                                                                                                                                                                    |
+| `DELETE` | `/agents/:id/servers/:server-id` | Remove a direct server assignment. Returns 404 `direct_server_not_assigned` if not assigned. Idempotency-Key supported.                                                                                                                                                                                                                                                                                                                   |
 
 **PATCH vs PUT semantics for agents:** `PATCH /agents/:id` updates only the fields present in the request body — it is a partial update. `PUT /agents/:id/guilds` performs a full replacement of the guild list — it is not a partial update. This distinction is intentional: the guild list is a set membership with replace-all semantics, while the agent record itself has partial-update semantics. Never use `PUT /agents/:id` (not defined — would require sending the complete agent record and risks overwriting fields the caller does not intend to change).
 
 ### Guilds
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/guilds` | List all guilds with member count and agent count. Supports `?q=`, `?yaml_managed=`, `?sort=`, `?order=` (see §9.0.5). Returns `{ data: [...], meta: { total, cursor, has_more } }`. |
-| `POST` | `/guilds` | Create a guild. Idempotency-Key supported. |
-| `GET` | `/guilds/:id` | Guild detail: member servers, assigned agents, tool preview |
-| `PATCH` | `/guilds/:id` | Partial update: `name`, `description`, `color`. `slug` is immutable after creation — returns 422 if included. Only fields present in the body are updated. |
-| `DELETE` | `/guilds/:id` | Delete guild (unassigns all agents — they get no guild). Returns 409 `system_resource` if `slug = 'default'`. Returns 409 `yaml_managed` if managed by YAML. |
-| `GET` | `/guilds/:id/servers` | List servers in this guild. Returns `{ data: [...], meta: { total } }`. |
-| `POST` | `/guilds/:id/servers` | Add server to guild `{ "server_id": "uuid" }`. Returns 409 `server_already_in_guild` if already assigned. Idempotency-Key supported. |
-| `PUT` | `/guilds/:id/servers` | **Bulk replace** server assignments. Body: `{ "server_ids": ["uuid1", "uuid2"] }`. Atomically replaces all server assignments. Returns 204. Returns 422 if any `server_id` is unknown. |
-| `DELETE` | `/guilds/:id/servers/:server-id` | Remove server from guild. Returns 404 `server_not_in_guild` if not assigned. Idempotency-Key supported. |
-| `GET` | `/guilds/:id/agents` | List agents in this guild. Returns `{ data: [...], meta: { total } }`. |
-| `GET` | `/guilds/:id/tools` | Preview: all tools this guild would expose (from `server_tool_cache` — see §9.2) |
+| Method   | Path                             | Description                                                                                                                                                                            |
+| -------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/guilds`                        | List all guilds with member count and agent count. Supports `?q=`, `?yaml_managed=`, `?sort=`, `?order=` (see §9.0.5). Returns `{ data: [...], meta: { total, cursor, has_more } }`.   |
+| `POST`   | `/guilds`                        | Create a guild. Idempotency-Key supported.                                                                                                                                             |
+| `GET`    | `/guilds/:id`                    | Guild detail: member servers, assigned agents, tool preview                                                                                                                            |
+| `PATCH`  | `/guilds/:id`                    | Partial update: `name`, `description`, `color`. `slug` is immutable after creation — returns 422 if included. Only fields present in the body are updated.                             |
+| `DELETE` | `/guilds/:id`                    | Delete guild (unassigns all agents — they get no guild). Returns 409 `system_resource` if `slug = 'default'`. Returns 409 `yaml_managed` if managed by YAML.                           |
+| `GET`    | `/guilds/:id/servers`            | List servers in this guild. Returns `{ data: [...], meta: { total } }`.                                                                                                                |
+| `POST`   | `/guilds/:id/servers`            | Add server to guild `{ "server_id": "uuid" }`. Returns 409 `server_already_in_guild` if already assigned. Idempotency-Key supported.                                                   |
+| `PUT`    | `/guilds/:id/servers`            | **Bulk replace** server assignments. Body: `{ "server_ids": ["uuid1", "uuid2"] }`. Atomically replaces all server assignments. Returns 204. Returns 422 if any `server_id` is unknown. |
+| `DELETE` | `/guilds/:id/servers/:server-id` | Remove server from guild. Returns 404 `server_not_in_guild` if not assigned. Idempotency-Key supported.                                                                                |
+| `GET`    | `/guilds/:id/agents`             | List agents in this guild. Returns `{ data: [...], meta: { total } }`.                                                                                                                 |
+| `GET`    | `/guilds/:id/tools`              | Preview: all tools this guild would expose (from `server_tool_cache` — see §9.2)                                                                                                       |
 
 ### Upstream Servers
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/servers` | List all upstream servers with guild memberships. Supports `?q=`, `?guild=`, `?yaml_managed=`, `?status=connected\|error`, `?sort=`, `?order=` (see §9.0.5). Returns `{ data: [...], meta: { total, cursor, has_more } }`. |
-| `POST` | `/servers` | Add a new upstream server. Returns 409 `alias_conflict` if `alias` is already taken, 409 `alias_reserved` if `alias = 'mcp'`. Idempotency-Key supported. |
-| `GET` | `/servers/:id` | Server detail — see §9.3.1 for response schema |
-| `PATCH` | `/servers/:id` | Partial update of server config: `name`, `alias`, `enabled`, `timeout_ms`. Transport config (`command`, `args`, `url`) is read-only via API — change in YAML only (returns 422 `transport_config_immutable` if included). Returns 409 `alias_conflict` if new `alias` conflicts. Only fields present in the body are updated. |
-| `DELETE` | `/servers/:id` | Remove server (removes from all guilds, removes direct assignments). Returns 409 `yaml_managed` if managed by YAML. |
-| `POST` | `/servers/:id/enable` | Enable server globally. Idempotent — returns 200 even if already enabled. |
-| `POST` | `/servers/:id/disable` | Disable server globally. Idempotent — returns 200 even if already disabled. |
-| `POST` | `/servers/:id/test` | Test connection — see §9.0.4 for full response schema. Makes a live upstream connection using the server's configured `timeout_ms`; does not persist any state. |
-| `GET` | `/servers/:id/env` | List env var **keys only** — values are never returned. Returns `{ "keys": ["KEY1", "KEY2"] }`. |
-| `PUT` | `/servers/:id/env` | Full replacement of all env vars. Body: `{ "KEY1": "value1", "KEY2": "value2" }`. Values accepted on write, never returned. Responds with `{ "keys": ["KEY1", "KEY2"] }`. The existing env vars are atomically deleted and replaced. |
-| `DELETE` | `/servers/:id/env/:key` | Remove a single env var. Returns 404 if key does not exist. |
-| `GET` | `/servers/:id/headers` | List header **keys only** — values are never returned. Returns `{ "keys": ["Authorization"] }`. |
-| `PUT` | `/servers/:id/headers` | Full replacement of all headers. Body: `{ "Authorization": "Bearer token" }`. Values accepted on write, never returned. Responds with `{ "keys": ["Authorization"] }`. |
-| `DELETE` | `/servers/:id/headers/:key` | Remove a single header. Returns 404 if key does not exist. |
+| Method   | Path                        | Description                                                                                                                                                                                                                                                                                                                   |
+| -------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/servers`                  | List all upstream servers with guild memberships. Supports `?q=`, `?guild=`, `?yaml_managed=`, `?status=connected\|error`, `?sort=`, `?order=` (see §9.0.5). Returns `{ data: [...], meta: { total, cursor, has_more } }`.                                                                                                    |
+| `POST`   | `/servers`                  | Add a new upstream server. Returns 409 `alias_conflict` if `alias` is already taken, 409 `alias_reserved` if `alias = 'mcp'`. Idempotency-Key supported.                                                                                                                                                                      |
+| `GET`    | `/servers/:id`              | Server detail — see §9.3.1 for response schema                                                                                                                                                                                                                                                                                |
+| `PATCH`  | `/servers/:id`              | Partial update of server config: `name`, `alias`, `enabled`, `timeout_ms`. Transport config (`command`, `args`, `url`) is read-only via API — change in YAML only (returns 422 `transport_config_immutable` if included). Returns 409 `alias_conflict` if new `alias` conflicts. Only fields present in the body are updated. |
+| `DELETE` | `/servers/:id`              | Remove server (removes from all guilds, removes direct assignments). Returns 409 `yaml_managed` if managed by YAML.                                                                                                                                                                                                           |
+| `POST`   | `/servers/:id/enable`       | Enable server globally. Idempotent — returns 200 even if already enabled.                                                                                                                                                                                                                                                     |
+| `POST`   | `/servers/:id/disable`      | Disable server globally. Idempotent — returns 200 even if already disabled.                                                                                                                                                                                                                                                   |
+| `POST`   | `/servers/:id/test`         | Test connection — see §9.0.4 for full response schema. Makes a live upstream connection using the server's configured `timeout_ms`; does not persist any state.                                                                                                                                                               |
+| `GET`    | `/servers/:id/env`          | List env var **keys only** — values are never returned. Returns `{ "keys": ["KEY1", "KEY2"] }`.                                                                                                                                                                                                                               |
+| `PUT`    | `/servers/:id/env`          | Full replacement of all env vars. Body: `{ "KEY1": "value1", "KEY2": "value2" }`. Values accepted on write, never returned. Responds with `{ "keys": ["KEY1", "KEY2"] }`. The existing env vars are atomically deleted and replaced.                                                                                          |
+| `DELETE` | `/servers/:id/env/:key`     | Remove a single env var. Returns 404 if key does not exist.                                                                                                                                                                                                                                                                   |
+| `GET`    | `/servers/:id/headers`      | List header **keys only** — values are never returned. Returns `{ "keys": ["Authorization"] }`.                                                                                                                                                                                                                               |
+| `PUT`    | `/servers/:id/headers`      | Full replacement of all headers. Body: `{ "Authorization": "Bearer token" }`. Values accepted on write, never returned. Responds with `{ "keys": ["Authorization"] }`.                                                                                                                                                        |
+| `DELETE` | `/servers/:id/headers/:key` | Remove a single header. Returns 404 if key does not exist.                                                                                                                                                                                                                                                                    |
 
 **PUT vs PATCH for servers:** `PUT /servers/:id/env` and `PUT /servers/:id/headers` use PUT because they perform full replacement of the credential set — sending a partial set would silently drop existing credentials. `PATCH /servers/:id` uses PATCH because the server record has many independent fields and partial updates are expected (e.g. changing only `timeout_ms`).
 
 ### Sessions
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/sessions` | List sessions. Defaults to `?status=active`. Supports `?status=active\|closed\|all`, `?agent=:id`, `?sort=connected_at`, `?order=desc`. Returns `{ data: [...], meta: { total, cursor, has_more } }`. |
-| `GET` | `/sessions/:id` | Single session detail including full `upstream_statuses` and `client_info`. |
-| `DELETE` | `/sessions/:id` | Force-close session — see §9.4 |
+| Method   | Path            | Description                                                                                                                                                                                           |
+| -------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/sessions`     | List sessions. Defaults to `?status=active`. Supports `?status=active\|closed\|all`, `?agent=:id`, `?sort=connected_at`, `?order=desc`. Returns `{ data: [...], meta: { total, cursor, has_more } }`. |
+| `GET`    | `/sessions/:id` | Single session detail including full `upstream_statuses` and `client_info`.                                                                                                                           |
+| `DELETE` | `/sessions/:id` | Force-close session — see §9.4                                                                                                                                                                        |
 
 ### System
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Liveness and readiness probe. Available on the primary MCP port. See §9.5.1 for response schema. |
-| `GET` | `/status` | Full operational status: agents, guilds, servers, sessions, tool counts. See §9.5.2 for response schema. |
-| `GET` | `/events` | Server-Sent Events stream for real-time UI updates — see §9.0.8 |
-| `GET` | `/openapi.json` | OpenAPI 3.1 specification (static, generated from Zod schemas) — see §9.0.7 |
-| `GET` | `/docs` | Swagger UI (development only; disabled in production unless `MCP_AGGREGATOR_ENABLE_SWAGGER=true`) |
+| Method | Path            | Description                                                                                              |
+| ------ | --------------- | -------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/health`       | Liveness and readiness probe. Available on the primary MCP port. See §9.5.1 for response schema.         |
+| `GET`  | `/status`       | Full operational status: agents, guilds, servers, sessions, tool counts. See §9.5.2 for response schema. |
+| `GET`  | `/events`       | Server-Sent Events stream for real-time UI updates — see §9.0.8                                          |
+| `GET`  | `/openapi.json` | OpenAPI 3.1 specification (static, generated from Zod schemas) — see §9.0.7                              |
+| `GET`  | `/docs`         | Swagger UI (development only; disabled in production unless `MCP_AGGREGATOR_ENABLE_SWAGGER=true`)        |
 
 ---
 
@@ -2364,14 +2420,15 @@ The response reflects what will be served on the next session start, not necessa
 
 **`source` field schema:**
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `alias` | string | Server alias |
-| `server_id` | string (UUID) | Server ID |
-| `via` | `"guild"` \| `"direct"` | How this server is attached to the agent |
-| `guild` | string \| undefined | Guild slug — present only when `via = "guild"`. If the same server appears in multiple guilds, the guild with the earliest `added_at` is used. |
+| Field       | Type                    | Notes                                                                                                                                          |
+| ----------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `alias`     | string                  | Server alias                                                                                                                                   |
+| `server_id` | string (UUID)           | Server ID                                                                                                                                      |
+| `via`       | `"guild"` \| `"direct"` | How this server is attached to the agent                                                                                                       |
+| `guild`     | string \| undefined     | Guild slug — present only when `via = "guild"`. If the same server appears in multiple guilds, the guild with the earliest `added_at` is used. |
 
 **Response:**
+
 ```json
 {
   "tools": [
@@ -2409,6 +2466,7 @@ Returns a **static** tool list for a guild, built from `server_tool_cache`. Does
 The response reflects what will be served on the next session start for any client connecting via this guild's endpoint. Servers with no cache entries (never successfully connected) appear in `uncached_servers`.
 
 **Response:**
+
 ```json
 {
   "tools": [
@@ -2490,6 +2548,7 @@ Note: `env_keys` and `header_keys` are the key names only, never values. `comman
 The proxy force-closes an active session by:
 
 1. Sending a best-effort MCP notification to the client over the active HTTP response stream (if still open):
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -2500,6 +2559,7 @@ The proxy force-closes an active session by:
   }
 }
 ```
+
 2. Closing the HTTP response stream
 3. Disconnecting all upstream connections for that session
 4. Writing `disconnected_at` to the `sessions` row
@@ -2513,6 +2573,7 @@ The proxy force-closes an active session by:
 The `/health` endpoint is documented in §16.2 for probe configuration. This section provides the normative response schema for API callers.
 
 **HTTP 200 — healthy:**
+
 ```json
 {
   "status": "ok",
@@ -2525,6 +2586,7 @@ The `/health` endpoint is documented in §16.2 for probe configuration. This sec
 ```
 
 **HTTP 503 — degraded:**
+
 ```json
 {
   "status": "degraded",
@@ -2544,6 +2606,7 @@ The `/health` endpoint is documented in §16.2 for probe configuration. This sec
 The `/status` endpoint provides a full operational snapshot for the web UI dashboard and monitoring integrations. It is more expensive than `/health` and MUST NOT be used as a probe target.
 
 **HTTP 200:**
+
 ```json
 {
   "version": "1.2.3",
@@ -2609,15 +2672,15 @@ The following steps execute **before** the HTTP listener binds to the port, so n
 
 The proxy MUST maintain a structured `audit_log` table in SQLite:
 
-| Column | Type | Notes |
-|---|---|---|
-| `id` | TEXT UUID | PK |
-| `event_type` | TEXT | e.g. `server.created`, `server.env.updated`, `guild.agent.added`, `session.force_closed` |
-| `actor` | TEXT | Source IP or `"operator"` in unauthenticated mode; API key ID in authenticated mode |
-| `target_id` | TEXT | ID of the affected resource |
-| `target_type` | TEXT | `agent` \| `guild` \| `server` \| `session` |
-| `payload` | TEXT (JSON) | Change summary. MUST NOT include credential values — for env/header updates, record only keys changed. |
-| `created_at` | TEXT ISO8601 | |
+| Column        | Type         | Notes                                                                                                  |
+| ------------- | ------------ | ------------------------------------------------------------------------------------------------------ |
+| `id`          | TEXT UUID    | PK                                                                                                     |
+| `event_type`  | TEXT         | e.g. `server.created`, `server.env.updated`, `guild.agent.added`, `session.force_closed`               |
+| `actor`       | TEXT         | Source IP or `"operator"` in unauthenticated mode; API key ID in authenticated mode                    |
+| `target_id`   | TEXT         | ID of the affected resource                                                                            |
+| `target_type` | TEXT         | `agent` \| `guild` \| `server` \| `session`                                                            |
+| `payload`     | TEXT (JSON)  | Change summary. MUST NOT include credential values — for env/header updates, record only keys changed. |
+| `created_at`  | TEXT ISO8601 |                                                                                                        |
 
 All write operations (POST, PUT, PATCH, DELETE) on the REST API MUST generate an audit log entry. The `sessions` table alone is insufficient as it does not record configuration changes.
 
@@ -2626,6 +2689,7 @@ All write operations (POST, PUT, PATCH, DELETE) on the REST API MUST generate an
 ### Key Request Schemas
 
 **POST /guilds**
+
 ```json
 {
   "name": "QA Engineer",
@@ -2636,11 +2700,13 @@ All write operations (POST, PUT, PATCH, DELETE) on the REST API MUST generate an
 ```
 
 **POST /guilds/:id/servers**
+
 ```json
 { "server_id": "uuid" }
 ```
 
 **PATCH /agents/:id**
+
 ```json
 {
   "display_name": "Garry (CEO agent)"
@@ -2648,11 +2714,13 @@ All write operations (POST, PUT, PATCH, DELETE) on the REST API MUST generate an
 ```
 
 **POST /agents/:id/guilds**
+
 ```json
 { "guild_id": "uuid-of-ceo-guild" }
 ```
 
 **GET /agents response** — uses `{ data, meta }` envelope (see §9.0.2):
+
 ```json
 {
   "data": [
@@ -2697,6 +2765,7 @@ All write operations (POST, PUT, PATCH, DELETE) on the REST API MUST generate an
 ```
 
 **POST /agents request** (pre-registration):
+
 ```json
 {
   "id": "new-agent",
@@ -2705,15 +2774,19 @@ All write operations (POST, PUT, PATCH, DELETE) on the REST API MUST generate an
   "server_ids": ["uuid-of-garry-crm"]
 }
 ```
+
 `guild_ids` and `server_ids` are optional arrays. Including them assigns guilds and direct servers atomically with registration. Returns 409 if `id` is already taken.
 
 **PUT /agents/:id/guilds request** (bulk guild replace):
+
 ```json
 { "guild_ids": ["uuid-of-ceo-guild", "uuid-of-developer-guild"] }
 ```
+
 Returns 204 No Content on success. An empty array removes all guild assignments.
 
 **POST /servers**
+
 ```json
 {
   "name": "GitHub Tools",
@@ -2730,19 +2803,23 @@ Returns 204 No Content on success. An empty array removes all guild assignments.
 ```
 
 **PATCH /servers/:id request** (partial update — only fields present are updated):
+
 ```json
 {
   "timeout_ms": 60000
 }
 ```
+
 Returns the full updated server object (same shape as `GET /servers/:id`). Transport config fields (`command`, `args`, `url`) return 422 `transport_config_immutable` if included.
 
 **PATCH /agents/:id request** (partial update):
+
 ```json
 {
   "display_name": "Garry (Updated Title)"
 }
 ```
+
 Returns the full updated agent object.
 
 ---
@@ -2750,11 +2827,12 @@ Returns the full updated agent object.
 ## 10. Web UI Specification
 
 ### Technology
+
 React 19 + Vite 6, Tailwind CSS 4, Radix UI, TanStack Query (consistent with Paperclip monorepo). Auto-refetch every 5s for live status. Read-only — configuration is done in `mcp.yaml`. The only write actions exposed are operational: force-close a session, globally disable/enable an upstream server.
 
 ### Dashboard (`/`)
 
-The primary view. Should answer at a glance: *who is connected, do they have the right tools, is anything broken?*
+The primary view. Should answer at a glance: _who is connected, do they have the right tools, is anything broken?_
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -2783,6 +2861,7 @@ The primary view. Should answer at a glance: *who is connected, do they have the
 ```
 
 Agents with no guilds show a warning with the YAML snippet needed to fix it:
+
 ```
 ⚠ new-agent-1 has no guilds. Add to mcp.yaml:
   agents:
@@ -2825,6 +2904,7 @@ Table: agent ID, guilds (colored badge pills), tool count, status indicator (●
 ```
 
 **Key observations available:**
+
 - Full namespaced tool list with source attribution (guild or direct) — answers "does this agent have the tool I expect?"
 - Upstream connection status per active session — answers "is everything connected?"
 - Session history with tool count delta — "did the tool count change between sessions?"
@@ -2846,6 +2926,7 @@ Cards, one per guild with color accent:
 ### Guild Detail (`/guilds/:id`)
 
 Tabs:
+
 - **Servers** — list of member upstream servers with connection status across active sessions.
 - **Agents** — list of agents in this guild with connection status and tool count.
 - **Tools** — full tool preview for this guild (from `server_tool_cache`). Searchable. Shows `⚠ no cache` badge for servers not yet connected.
@@ -2906,6 +2987,7 @@ Best when you want to track individual agents and change their tools without tou
 2. Add to agent's MCP config — **this URL never changes**:
 
 **Claude Code (`.claude/mcp.json`):**
+
 ```json
 {
   "mcpServers": {
@@ -2918,6 +3000,7 @@ Best when you want to track individual agents and change their tools without tou
 ```
 
 **Claude Desktop:**
+
 ```json
 {
   "mcpServers": {
@@ -2958,15 +3041,19 @@ Best for ephemeral agents or when you want the guild set encoded in the URL.
 Both `garry` and `claire` are CEOs. They both get CEO tools. Garry also has a personal CRM integration.
 
 **garry's config:**
+
 ```json
 { "url": "http://localhost:4000/mcp/agents/garry" }
 ```
+
 In UI: garry → guilds: [ceo] + direct: [garry-crm]
 
 **claire's config:**
+
 ```json
 { "url": "http://localhost:4000/mcp/agents/claire" }
 ```
+
 In UI: claire → guilds: [ceo]
 
 Both get all `ceo` guild tools. Garry additionally gets `garry-crm__*` tools. Neither config ever needs to change.
@@ -2977,18 +3064,19 @@ Both get all `ceo` guild tools. Garry additionally gets `garry-crm__*` tools. Ne
 
 **Flags:**
 
-| Flag | Required | Default | Description |
-|---|---|---|---|
-| `--upstream` | yes | — | Base URL of the running aggregator, e.g. `http://localhost:4000` |
-| `--agent` | no | — | Agent ID. Constructs `/mcp/agents/{id}` when set. |
-| `--guild` | no | — | Comma-separated guild slugs. Constructs `/mcp/guilds/{slug,...}` when set. |
-| `--timeout` | no | `30000` | Connection timeout to upstream, in ms. |
+| Flag         | Required | Default | Description                                                                |
+| ------------ | -------- | ------- | -------------------------------------------------------------------------- |
+| `--upstream` | yes      | —       | Base URL of the running aggregator, e.g. `http://localhost:4000`           |
+| `--agent`    | no       | —       | Agent ID. Constructs `/mcp/agents/{id}` when set.                          |
+| `--guild`    | no       | —       | Comma-separated guild slugs. Constructs `/mcp/guilds/{slug,...}` when set. |
+| `--timeout`  | no       | `30000` | Connection timeout to upstream, in ms.                                     |
 
 Exactly one of `--agent` or `--guild` must be provided (mutual exclusion enforced at startup; exits 1 with a clear error message if neither or both are supplied).
 
 **Behaviour on upstream unavailability:** If the HTTP aggregator cannot be reached at startup, the stdio wrapper writes a JSON-RPC error to stdout and exits with code 1, so the client sees a meaningful failure rather than a silent hang. There is no automatic reconnect — the client must restart the stdio process.
 
 **Claude Desktop example:**
+
 ```json
 {
   "mcpServers": {
@@ -3004,13 +3092,13 @@ Exactly one of `--agent` or `--guild` must be provided (mutual exclusion enforce
 
 **`mcp-aggregator start`** — Start the aggregator server.
 
-| Flag | Env var | Default | Description |
-|---|---|---|---|
-| `--port <n>` | `MCP_AGGREGATOR_PORT` | `4000` | Primary HTTP port |
-| `--api-port <n>` | `MCP_AGGREGATOR_API_PORT` | unset | Optional second port for UI+API |
-| `--public-url <url>` | `MCP_AGGREGATOR_PUBLIC_URL` | `http://localhost:{port}` | Advertised base URL |
-| `--home <path>` | `MCP_AGGREGATOR_HOME` | `~/.mcp-aggregator` | Config and DB directory |
-| `--bind <addr>` | — | `127.0.0.1` | Bind address. Use `0.0.0.0` for external access (requires explicit opt-in). |
+| Flag                 | Env var                     | Default                   | Description                                                                 |
+| -------------------- | --------------------------- | ------------------------- | --------------------------------------------------------------------------- |
+| `--port <n>`         | `MCP_AGGREGATOR_PORT`       | `4000`                    | Primary HTTP port                                                           |
+| `--api-port <n>`     | `MCP_AGGREGATOR_API_PORT`   | unset                     | Optional second port for UI+API                                             |
+| `--public-url <url>` | `MCP_AGGREGATOR_PUBLIC_URL` | `http://localhost:{port}` | Advertised base URL                                                         |
+| `--home <path>`      | `MCP_AGGREGATOR_HOME`       | `~/.mcp-aggregator`       | Config and DB directory                                                     |
+| `--bind <addr>`      | —                           | `127.0.0.1`               | Bind address. Use `0.0.0.0` for external access (requires explicit opt-in). |
 
 Exit codes: `0` = clean shutdown, `1` = startup failure (logged to stderr).
 
@@ -3025,13 +3113,14 @@ Exit codes: `0` = clean shutdown, `1` = startup failure (logged to stderr).
 ### 12.1 Unassigned agent initialize response
 
 When an agent connects with no guild:
+
 ```json
 {
   "protocolVersion": "2025-06-18",
   "capabilities": {
-    "tools":     { "listChanged": true },
+    "tools": { "listChanged": true },
     "resources": { "listChanged": true },
-    "prompts":   { "listChanged": true }
+    "prompts": { "listChanged": true }
   },
   "serverInfo": {
     "name": "mcp-aggregator",
@@ -3046,6 +3135,7 @@ The proxy always declares `tools`, `resources`, and `prompts` with `listChanged:
 **Protocol version negotiation:** The proxy MUST echo back the `protocolVersion` the client sent in its `initialize` request if the proxy supports that version. The proxy declares support for `["2024-11-05", "2025-03-26", "2025-06-18"]`. If the client sends an unrecognised version, the proxy responds with its highest supported version. If the client sends a recognised but older version, the proxy MUST respond with that exact version. The examples in this section use `"2025-06-18"` for illustration; the actual value in responses is always determined by negotiation.
 
 For untracked connections to `/mcp` (the `default` guild) that have no servers configured, the instructions omit the agent ID:
+
 ```json
 {
   "instructions": "The default guild has no servers configured. Add servers to the 'default' guild in mcp.yaml or the MCP Aggregator UI at {MCP_AGGREGATOR_PUBLIC_URL}/guilds/default."
@@ -3058,13 +3148,14 @@ For untracked connections to `/mcp` (the `default` guild) that have no servers c
 
 The proxy injects a small set of **meta-tools** into every agent's tool list. These let the LLM introspect its own MCP configuration without needing a separate side-channel. Tools are prefixed `mcp__` to avoid collisions with upstream aliases (the `mcp` alias is reserved — see §12.5).
 
-| Tool name | Description |
-|-----------|-------------|
-| `mcp__describe` | Returns a summary of this agent's current configuration: which guilds it belongs to, which upstream servers are connected, how many tools are available, and the live connection status of each upstream. Intended answer to "am I configured correctly?" |
-| `mcp__tools_by_server` | Lists all available tools grouped by upstream server alias and the guild they come from. Useful for "do I have any git tools?" or "which server handles deployment?" |
-| `mcp__status` | Returns the health of each upstream connection for the current session: `connected`, `error` (with last error message), or `disconnected`. |
+| Tool name              | Description                                                                                                                                                                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mcp__describe`        | Returns a summary of this agent's current configuration: which guilds it belongs to, which upstream servers are connected, how many tools are available, and the live connection status of each upstream. Intended answer to "am I configured correctly?" |
+| `mcp__tools_by_server` | Lists all available tools grouped by upstream server alias and the guild they come from. Useful for "do I have any git tools?" or "which server handles deployment?"                                                                                      |
+| `mcp__status`          | Returns the health of each upstream connection for the current session: `connected`, `error` (with last error message), or `disconnected`.                                                                                                                |
 
 **`mcp__describe` response shape:**
+
 ```json
 {
   "agent_id": "garry",
@@ -3072,15 +3163,22 @@ The proxy injects a small set of **meta-tools** into every agent's tool list. Th
   "direct_servers": ["garry-crm"],
   "tool_count": 67,
   "upstreams": [
-    { "alias": "board",     "status": "connected", "tool_count": 12, "via": "guild", "guild": "ceo" },
-    { "alias": "github",    "status": "connected", "tool_count": 28, "via": "guild", "guild": "developer" },
-    { "alias": "garry-crm", "status": "connected", "tool_count": 5,  "via": "direct" }
+    { "alias": "board", "status": "connected", "tool_count": 12, "via": "guild", "guild": "ceo" },
+    {
+      "alias": "github",
+      "status": "connected",
+      "tool_count": 28,
+      "via": "guild",
+      "guild": "developer"
+    },
+    { "alias": "garry-crm", "status": "connected", "tool_count": 5, "via": "direct" }
   ],
   "ui_url": "{MCP_AGGREGATOR_PUBLIC_URL}/agents/garry"
 }
 ```
 
 **`mcp__tools_by_server` response shape:**
+
 ```json
 {
   "servers": [
@@ -3102,12 +3200,14 @@ The proxy injects a small set of **meta-tools** into every agent's tool list. Th
 These tools are always present and do not require upstream connections — they reflect live proxy state. For untracked guild connections (`/mcp/guilds/...`), `agent_id` is `null` and `guilds` lists the slugs from the URL.
 
 **Response format:** All meta-tool responses conform to the MCP `tools/call` result schema. The JSON shapes above are serialised and returned as:
+
 ```json
 {
   "content": [{ "type": "text", "text": "{ ... serialised JSON ... }" }],
   "isError": false
 }
 ```
+
 On error: `isError: true` with a descriptive text content item.
 
 **Secret safety:** None of the meta-tools expose env var values or header values. `mcp__describe` includes upstream connection config (alias, transport type, command/URL) but never env keys or header keys — those are not useful to an LLM and could leak credential names.
@@ -3115,6 +3215,7 @@ On error: `isError: true` with a descriptive text content item.
 ### 12.3 Capability merging
 
 Proxy's declared capabilities are the union of all connected upstream capabilities:
+
 - `tools: { listChanged: true }` — always declared (proxy always has meta-tools; listChanged reflects that hot-reload can change the set).
 - `resources: { listChanged: true }` — declared if any upstream advertises `resources`. The `subscribe` sub-key is **never** forwarded (resource subscriptions are a non-goal, §4); any upstream `resources.subscribe` is silently stripped. Clients that send `resources/subscribe` receive a `-32601 Method not found` error.
 - `prompts: { listChanged: true }` — declared if any upstream advertises `prompts`.
@@ -3122,6 +3223,7 @@ Proxy's declared capabilities are the union of all connected upstream capabiliti
 - `logging: {}` — **not** forwarded. The proxy does not proxy `logging/setLevel` or `notifications/message` from upstreams to the downstream client in v1.
 
 **Tool count warning threshold:** When the merged tool count for a session (including meta-tools) exceeds `MCP_AGGREGATOR_TOOL_WARN_THRESHOLD` (default: `128`), the proxy:
+
 1. Logs a `WARN` message: `"Session {session_id} for agent {agent_id} has {N} tools. Many LLM clients truncate tool lists above 128. Consider splitting this agent across multiple guilds or reducing guild membership."`
 2. Includes a `"tool_count_warning"` field in the `mcp__describe` meta-tool response: `"tool_count_warning": "This agent has 183 tools. Some LLM clients may truncate tool lists; consider reducing guild membership."`
 
@@ -3137,34 +3239,34 @@ No truncation is performed in v1 — this is a diagnostic aid only.
 
 The proxy emits parallel notifications for resources and prompts following the same trigger rules:
 
-| Notification | Condition |
-|---|---|
-| `notifications/tools/list_changed` | Any of the 5 listed triggers, if proxy declared `tools` capability |
+| Notification                           | Condition                                                                                         |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `notifications/tools/list_changed`     | Any of the 5 listed triggers, if proxy declared `tools` capability                                |
 | `notifications/resources/list_changed` | Same triggers, if proxy declared `resources` capability and affected upstream(s) expose resources |
-| `notifications/prompts/list_changed` | Same triggers, if proxy declared `prompts` capability and affected upstream(s) expose prompts |
+| `notifications/prompts/list_changed`   | Same triggers, if proxy declared `prompts` capability and affected upstream(s) expose prompts     |
 
 Notifications are only sent for capability types that were declared in the `initialize` response.
 
 ### 12.5 Error handling
 
-| Scenario | Behavior |
-|----------|----------|
-| Upstream fails at session start | Skip, log, continue with remaining |
-| Upstream disconnects mid-session | Mark disconnected, emit `tools/list_changed`, calls to it return `isError: true` |
-| SSE upstream drops mid-session | Mark disconnected, emit `tools/list_changed`, that upstream's tools are removed from `tools/list` for the remainder of the session. No automatic reconnect within the session — reconnect attempted at next session start. |
-| Agent unassigned while connected | Emit `tools/list_changed`, `tools/list` returns empty |
-| `tools/call` with unknown prefix | Return `isError: true`, message: `"Unknown upstream alias: 'xyz'"` |
-| `tools/call` with no `__` separator | Return `isError: true`, message: `"Tool name must be prefixed with an alias: '{name}'"` |
-| `tools/call` to disconnected upstream | Return `isError: true`, message: `"Upstream 'github' is not available"` |
-| Alias collision (two servers same alias) | Rejected at API write time — 409 Conflict. Alias uniqueness is **global** — two servers cannot share an alias regardless of guild membership. |
-| Alias equals `mcp` | Rejected at write time — 409 Conflict. The alias `mcp` is reserved; the `mcp__` tool prefix is used exclusively for proxy self-description tools (§12.2). Aliases that start with `mcp` but are not exactly `mcp` (e.g. `mcptools`, `mcpserver`) are permitted. |
-| `resources/read` URI not matching any `mcp+{alias}:` prefix | Return JSON-RPC error `{ "code": -32002, "message": "Resource not found: unknown URI scheme" }` |
-| `resources/read` where owning upstream is disconnected | Return JSON-RPC error `{ "code": -32002, "message": "Resource not found: upstream '{alias}' is not available" }` |
-| `prompts/get` with no `__` separator | Return JSON-RPC error `{ "code": -32602, "message": "Prompt name must be prefixed with an alias: '{name}'" }` |
-| `prompts/get` with unknown alias prefix | Return JSON-RPC error `{ "code": -32602, "message": "Unknown upstream alias: '{alias}'" }` |
-| `prompts/get` where owning upstream is disconnected | Return JSON-RPC error `{ "code": -32602, "message": "Upstream '{alias}' is not available" }` |
-| `completion/complete` forwarding failure | Return JSON-RPC error `{ "code": -32603, "message": "Completion request failed: {upstream error}" }` |
-| `resources/subscribe` (any) | Return JSON-RPC error `{ "code": -32601, "message": "Method not found: resource subscriptions are not supported" }` |
+| Scenario                                                    | Behavior                                                                                                                                                                                                                                                        |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Upstream fails at session start                             | Skip, log, continue with remaining                                                                                                                                                                                                                              |
+| Upstream disconnects mid-session                            | Mark disconnected, emit `tools/list_changed`, calls to it return `isError: true`                                                                                                                                                                                |
+| SSE upstream drops mid-session                              | Mark disconnected, emit `tools/list_changed`, that upstream's tools are removed from `tools/list` for the remainder of the session. No automatic reconnect within the session — reconnect attempted at next session start.                                      |
+| Agent unassigned while connected                            | Emit `tools/list_changed`, `tools/list` returns empty                                                                                                                                                                                                           |
+| `tools/call` with unknown prefix                            | Return `isError: true`, message: `"Unknown upstream alias: 'xyz'"`                                                                                                                                                                                              |
+| `tools/call` with no `__` separator                         | Return `isError: true`, message: `"Tool name must be prefixed with an alias: '{name}'"`                                                                                                                                                                         |
+| `tools/call` to disconnected upstream                       | Return `isError: true`, message: `"Upstream 'github' is not available"`                                                                                                                                                                                         |
+| Alias collision (two servers same alias)                    | Rejected at API write time — 409 Conflict. Alias uniqueness is **global** — two servers cannot share an alias regardless of guild membership.                                                                                                                   |
+| Alias equals `mcp`                                          | Rejected at write time — 409 Conflict. The alias `mcp` is reserved; the `mcp__` tool prefix is used exclusively for proxy self-description tools (§12.2). Aliases that start with `mcp` but are not exactly `mcp` (e.g. `mcptools`, `mcpserver`) are permitted. |
+| `resources/read` URI not matching any `mcp+{alias}:` prefix | Return JSON-RPC error `{ "code": -32002, "message": "Resource not found: unknown URI scheme" }`                                                                                                                                                                 |
+| `resources/read` where owning upstream is disconnected      | Return JSON-RPC error `{ "code": -32002, "message": "Resource not found: upstream '{alias}' is not available" }`                                                                                                                                                |
+| `prompts/get` with no `__` separator                        | Return JSON-RPC error `{ "code": -32602, "message": "Prompt name must be prefixed with an alias: '{name}'" }`                                                                                                                                                   |
+| `prompts/get` with unknown alias prefix                     | Return JSON-RPC error `{ "code": -32602, "message": "Unknown upstream alias: '{alias}'" }`                                                                                                                                                                      |
+| `prompts/get` where owning upstream is disconnected         | Return JSON-RPC error `{ "code": -32602, "message": "Upstream '{alias}' is not available" }`                                                                                                                                                                    |
+| `completion/complete` forwarding failure                    | Return JSON-RPC error `{ "code": -32603, "message": "Completion request failed: {upstream error}" }`                                                                                                                                                            |
+| `resources/subscribe` (any)                                 | Return JSON-RPC error `{ "code": -32601, "message": "Method not found: resource subscriptions are not supported" }`                                                                                                                                             |
 
 **Tool name collision with meta-tools:** Because tool routing splits only on the **first** `__`, an upstream tool whose original name contains `__` (e.g. `mcp__describe`) will never be misrouted to the meta-tool handler. After namespacing it becomes `{alias}__mcp__describe`; the router extracts alias `{alias}` and forwards `mcp__describe` as the original tool name to the correct upstream. The meta-tool handler is invoked only when the alias portion (before the first `__`) is exactly `mcp`.
 
@@ -3233,7 +3335,7 @@ export class UpstreamError extends Error {
     public readonly alias: string,
     public readonly serverId: string,
     message: string,
-    public readonly cause?: Error,
+    public readonly cause?: Error
   ) {
     super(message);
   }
@@ -3256,23 +3358,23 @@ export class UpstreamError extends Error {
 
 Standalone Node.js/TypeScript service living in `mcp-proxy/` directory. Scaffold follows [mcpdotdirect/template-mcp-server](https://github.com/mcpdotdirect/template-mcp-server) conventions, adapted for the official MCP SDK and the aggregator's multi-component architecture.
 
-| Layer | Technology | Rationale |
-|-------|-----------|-----------|
-| Runtime | Node.js 22 | LTS, same as monorepo |
-| Language | TypeScript 5 (strict) | Consistent with monorepo |
-| MCP SDK | `@modelcontextprotocol/sdk` | Official SDK |
-| HTTP server | Express 5 | Consistent with `server/` package |
-| Database | `better-sqlite3` + `drizzle-orm` | Embedded, zero-config, consistent ORM |
-| Web UI | React 19 + Vite 6 | Consistent with `ui/` package |
-| UI components | Tailwind CSS 4 + Radix UI | Consistent with `ui/` package |
-| Build (server) | esbuild | Consistent with `cli/` package |
-| Build (UI) | Vite | Consistent with `ui/` package |
-| Tests | Vitest | Consistent with monorepo |
-| File watching | chokidar | Reliable cross-platform; handles NFS and container volume mounts |
-| Process mgmt | Node `child_process` | stdio upstream spawning |
-| Linting | ESLint + Prettier | Code quality and formatting |
-| Commit convention | Conventional Commits + commitlint | Enforced via husky pre-commit hook |
-| Versioning | Changesets | Changelog generation + semver |
+| Layer             | Technology                        | Rationale                                                        |
+| ----------------- | --------------------------------- | ---------------------------------------------------------------- |
+| Runtime           | Node.js 22                        | LTS, same as monorepo                                            |
+| Language          | TypeScript 5 (strict)             | Consistent with monorepo                                         |
+| MCP SDK           | `@modelcontextprotocol/sdk`       | Official SDK                                                     |
+| HTTP server       | Express 5                         | Consistent with `server/` package                                |
+| Database          | `better-sqlite3` + `drizzle-orm`  | Embedded, zero-config, consistent ORM                            |
+| Web UI            | React 19 + Vite 6                 | Consistent with `ui/` package                                    |
+| UI components     | Tailwind CSS 4 + Radix UI         | Consistent with `ui/` package                                    |
+| Build (server)    | esbuild                           | Consistent with `cli/` package                                   |
+| Build (UI)        | Vite                              | Consistent with `ui/` package                                    |
+| Tests             | Vitest                            | Consistent with monorepo                                         |
+| File watching     | chokidar                          | Reliable cross-platform; handles NFS and container volume mounts |
+| Process mgmt      | Node `child_process`              | stdio upstream spawning                                          |
+| Linting           | ESLint + Prettier                 | Code quality and formatting                                      |
+| Commit convention | Conventional Commits + commitlint | Enforced via husky pre-commit hook                               |
+| Versioning        | Changesets                        | Changelog generation + semver                                    |
 
 **Reference implementation:** `sparfenyuk/mcp-proxy` (Python) — useful for 1:1 transport bridging patterns and the `@modelcontextprotocol/sdk` session handling idioms. Our implementation extends this with N:1 aggregation, guild/agent routing, namespacing, and web UI.
 
@@ -3283,6 +3385,7 @@ Standalone Node.js/TypeScript service living in `mcp-proxy/` directory. Scaffold
 ## 14. Implementation Milestones
 
 ### Milestone 0 — Project scaffold & standards
+
 - [ ] Init repo from [mcpdotdirect/template-mcp-server](https://github.com/mcpdotdirect/template-mcp-server) layout
 - [ ] `package.json` with all scripts (`dev`, `build`, `typecheck`, `lint`, `test:run`, `db:generate`, `db:migrate`)
 - [ ] `tsconfig.json` + `tsconfig.build.json` (strict, ES2022, NodeNext modules)
@@ -3295,6 +3398,7 @@ Standalone Node.js/TypeScript service living in `mcp-proxy/` directory. Scaffold
 - [ ] `README.md` with quickstart covering: one-command install (`npx mcp-aggregator start` or Docker run one-liner), minimal `mcp.yaml` (one stdio server, one guild, one agent), Claude Code `.claude/mcp.json` snippet pointing to the running proxy, Claude Desktop `claude_desktop_config.json` snippet using the stdio wrapper, troubleshooting: "agent shows 0 tools" → assign a guild. Include `.gitignore` entry for `mcp.yaml` and warning against literal secrets.
 
 ### Milestone 1 — Core proxy, no agents/guilds
+
 - [ ] SQLite schema + migrations (drizzle): all tables, including `default` guild seed and `server_tool_cache`
 - [ ] Upstream Connection Manager: stdio transport
 - [ ] Aggregator Engine: tool merge + namespacing
@@ -3303,6 +3407,7 @@ Standalone Node.js/TypeScript service living in `mcp-proxy/` directory. Scaffold
 - [ ] Unit tests: namespacing, routing, merge logic
 
 ### Milestone 2 — Agent & Guild routing
+
 - [ ] Agent Router: `/mcp/agents/:id`, `/mcp/guilds/:slug`, `/mcp/guilds/:slug1,:slug2,...` endpoints
 - [ ] Agent auto-registration on first connect (session_count increment in same transaction)
 - [ ] Multi-guild capability resolution (union + deduplication)
@@ -3314,6 +3419,7 @@ Standalone Node.js/TypeScript service living in `mcp-proxy/` directory. Scaffold
 - [ ] Integration tests: multi-guild routing, deduplication, direct assignments
 
 ### Milestone 3 — REST API + Hot reload
+
 - [ ] Express app at `/api` (same port as MCP server)
 - [ ] Full agent CRUD endpoints including bulk guild replace `PUT /agents/:id/guilds` and bulk server replace `PUT /guilds/:id/servers` (§9 tables)
 - [ ] Full guild CRUD endpoints
@@ -3337,12 +3443,14 @@ Standalone Node.js/TypeScript service living in `mcp-proxy/` directory. Scaffold
 > Note: REST API and hot reload are co-developed in this milestone because the hot reload event bus is triggered by API writes. Separating them into sequential milestones would require stubbing the API in milestone 3.
 
 ### Milestone 4 — HTTP upstreams
+
 - [ ] Upstream Connection Manager: Streamable HTTP transport
 - [ ] Upstream Connection Manager: SSE (legacy) transport
 - [ ] SSE disconnect handling: mark disconnected mid-session, no auto-reconnect within session
 - [ ] Integration tests: HTTP upstream scenarios
 
 ### Milestone 5 — Web UI
+
 - [ ] Vite + React app scaffold, served at `/` on MCP port
 - [ ] Dashboard with live status (auto-refetch every 5s)
 - [ ] Agent list + detail (tool list with source attribution, session history, connection URL copy)
@@ -3353,6 +3461,7 @@ Standalone Node.js/TypeScript service living in `mcp-proxy/` directory. Scaffold
 - [ ] XSS prevention: all user-controlled fields rendered as text, guild color validated as `^#[0-9a-fA-F]{6}$`, no `dangerouslySetInnerHTML` for any database-sourced field
 
 ### Milestone 6 — Resources, Prompts, stdio wrapper, Polish
+
 - [ ] Resource aggregation with `mcp+{alias}://` URI prefixing
 - [ ] Prompt aggregation
 - [ ] Full pagination (proxy-level cursors)
@@ -3360,6 +3469,7 @@ Standalone Node.js/TypeScript service living in `mcp-proxy/` directory. Scaffold
 - [ ] Structured JSON logging (see §16.8 for format spec)
 
 ### Milestone 7 — Hardening (v2 candidate)
+
 - [ ] API key auth for web UI
 - [ ] Encrypted secrets at rest
 - [ ] Prometheus metrics endpoint
@@ -3377,20 +3487,21 @@ New upstream transports are added by implementing `IUpstreamHandle` and register
 
 ```typescript
 // src/upstream/manager.ts
-import { StdioUpstream }        from './stdio';
+import { StdioUpstream } from './stdio';
 import { StreamableHttpUpstream } from './http';
-import { SseUpstream }           from './sse';
+import { SseUpstream } from './sse';
 // To add a new transport: import it and add an entry below.
 
 const TRANSPORT_REGISTRY: Record<TransportType, UpstreamFactory> = {
-  stdio:          (cfg, sessionId) => new StdioUpstream(cfg, sessionId),
+  stdio: (cfg, sessionId) => new StdioUpstream(cfg, sessionId),
   streamablehttp: (cfg, sessionId) => new StreamableHttpUpstream(cfg, sessionId),
-  sse:            (cfg, sessionId) => new SseUpstream(cfg, sessionId),
+  sse: (cfg, sessionId) => new SseUpstream(cfg, sessionId),
   // websocket:   (cfg, sessionId) => new WebSocketUpstream(cfg, sessionId),  // v2
 };
 ```
 
 A new transport must:
+
 1. Implement `IUpstreamHandle` (all methods including `ping()`)
 2. Accept `ResolvedServerConfig` and `sessionId` in its constructor
 3. Export a named factory function
@@ -3422,7 +3533,7 @@ export function buildExpressApp(opts: {
   store: IConfigStore;
   bus: IEventBus;
   config: IConfigLoader;
-  auth?: AuthMiddleware;   // undefined = unauthenticated (v1 default)
+  auth?: AuthMiddleware; // undefined = unauthenticated (v1 default)
 }): Express;
 ```
 
@@ -3509,13 +3620,14 @@ jobs:
       - uses: changesets/action@v1
         with:
           publish: pnpm release
-          title: "chore: version packages"
-          commit: "chore: version packages"
+          title: 'chore: version packages'
+          commit: 'chore: version packages'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 **Flow:**
+
 1. Developer creates a changeset with `pnpm changeset` and commits it with their PR
 2. On merge to `main`, the `changesets/action` creates (or updates) a "Version Packages" PR that bumps `package.json` and updates `CHANGELOG.md`
 3. When that PR is merged, `pnpm release` runs (`pnpm build && changeset publish`), which creates a Git tag and a GitHub release with the changelog notes
@@ -3525,16 +3637,16 @@ jobs:
 Add after the Changesets step to build and push a Docker image on version tag:
 
 ```yaml
-      - name: Build and push Docker image
-        if: steps.changesets.outputs.published == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: docker/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:latest
-            ghcr.io/${{ github.repository }}:${{ steps.changesets.outputs.publishedPackages[0].version }}
+- name: Build and push Docker image
+  if: steps.changesets.outputs.published == 'true'
+  uses: docker/build-push-action@v5
+  with:
+    context: .
+    file: docker/Dockerfile
+    push: true
+    tags: |
+      ghcr.io/${{ github.repository }}:latest
+      ghcr.io/${{ github.repository }}:${{ steps.changesets.outputs.publishedPackages[0].version }}
 ```
 
 ### Dockerfile
@@ -3597,19 +3709,19 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     ports:
-      - "127.0.0.1:4000:4000"  # WARNING: no agent auth in v1 — bind to loopback only
+      - '127.0.0.1:4000:4000' # WARNING: no agent auth in v1 — bind to loopback only
     volumes:
       # Note: hot-reload (chokidar) may not fire reliably on Docker for Mac due to
       # VirtioFS/osxfs inotify propagation limits. Send SIGHUP for manual reload:
       #   docker kill --signal=HUP <container_name>
-      - ./mcp.yaml:/data/mcp.yaml:ro   # ro: config is managed on the host; container must not write it
+      - ./mcp.yaml:/data/mcp.yaml:ro # ro: config is managed on the host; container must not write it
       - mcp-data:/data
     environment:
       # Set to the externally reachable URL agents use to connect.
       # http://localhost:4000 only works when agents run on the same host.
       # WARNING: No agent authentication in v1 — bind to loopback or trusted network only.
-      MCP_AGGREGATOR_PUBLIC_URL: "http://localhost:4000"
-      MCP_AGGREGATOR_MIGRATION_PROMPT: "never"
+      MCP_AGGREGATOR_PUBLIC_URL: 'http://localhost:4000'
+      MCP_AGGREGATOR_MIGRATION_PROMPT: 'never'
     env_file:
       # Create a .env file alongside docker-compose.yml for upstream credentials.
       # This file MUST be listed in .gitignore — never commit upstream credentials.
@@ -3617,16 +3729,21 @@ services:
       #   GITHUB_TOKEN=ghp_xxx
       #   SLACK_BOT_TOKEN=xoxb-xxx
       - path: ./.env
-        required: false   # Allows starting without credentials (upstreams that need them will fail to connect)
+        required: false # Allows starting without credentials (upstreams that need them will fail to connect)
     healthcheck:
-      test: ["CMD", "node", "-e",
-             "require('http').get('http://127.0.0.1:4000/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://127.0.0.1:4000/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))",
+        ]
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 30s   # Allow time for migrations and startup before first health check
+      start_period: 30s # Allow time for migrations and startup before first health check
     restart: unless-stopped
-    stop_grace_period: 30s   # Allow graceful session drain (§16.5) before SIGKILL
+    stop_grace_period: 30s # Allow graceful session drain (§16.5) before SIGKILL
 
 volumes:
   mcp-data:
@@ -3636,12 +3753,12 @@ volumes:
 
 ### Branch & commit conventions
 
-| Branch | Purpose |
-|--------|---------|
-| `main` | Production-ready. Protected — no direct pushes. All merges via PR. |
-| `feat/*` | New features |
-| `fix/*` | Bug fixes |
-| `chore/*` | Maintenance, deps, CI |
+| Branch    | Purpose                                                            |
+| --------- | ------------------------------------------------------------------ |
+| `main`    | Production-ready. Protected — no direct pushes. All merges via PR. |
+| `feat/*`  | New features                                                       |
+| `fix/*`   | Bug fixes                                                          |
+| `chore/*` | Maintenance, deps, CI                                              |
 
 Commits on feature branches must pass commitlint (enforced via husky). Squash-merge is preferred so `main` history stays clean and each entry is one Conventional Commit.
 
@@ -3652,6 +3769,7 @@ Commits on feature branches must pass commitlint (enforced via husky). Squash-me
 The following manifests represent a production-grade single-replica deployment. See §16.4 for the explicit constraint against running multiple replicas with a shared SQLite volume.
 
 **Namespace and ServiceAccount:**
+
 ```yaml
 apiVersion: v1
 kind: Namespace
@@ -3663,10 +3781,11 @@ kind: ServiceAccount
 metadata:
   name: mcp-aggregator
   namespace: mcp-aggregator
-  annotations: {}  # Add IAM annotations here for cloud workload identity (AWS IRSA, GCP Workload Identity)
+  annotations: {} # Add IAM annotations here for cloud workload identity (AWS IRSA, GCP Workload Identity)
 ```
 
 **ConfigMap (non-secret runtime config):**
+
 ```yaml
 apiVersion: v1
 kind: ConfigMap
@@ -3674,18 +3793,19 @@ metadata:
   name: mcp-aggregator-config
   namespace: mcp-aggregator
 data:
-  MCP_AGGREGATOR_PORT: "4000"
-  MCP_AGGREGATOR_MIGRATION_PROMPT: "never"
-  MCP_AGGREGATOR_HOME: "/data"
-  MCP_AGGREGATOR_RELOAD_DEBOUNCE_MS: "300"
-  MCP_AGGREGATOR_UPSTREAM_CONCURRENCY: "10"
-  MCP_AGGREGATOR_TOOL_WARN_THRESHOLD: "128"
-  NODE_ENV: "production"
+  MCP_AGGREGATOR_PORT: '4000'
+  MCP_AGGREGATOR_MIGRATION_PROMPT: 'never'
+  MCP_AGGREGATOR_HOME: '/data'
+  MCP_AGGREGATOR_RELOAD_DEBOUNCE_MS: '300'
+  MCP_AGGREGATOR_UPSTREAM_CONCURRENCY: '10'
+  MCP_AGGREGATOR_TOOL_WARN_THRESHOLD: '128'
+  NODE_ENV: 'production'
   # MCP_AGGREGATOR_PUBLIC_URL is NOT set here — it references the externally-reachable
   # URL and must be set per-environment in a patch or a separate Secret.
 ```
 
 **Secret (sensitive runtime values):**
+
 ```yaml
 apiVersion: v1
 kind: Secret
@@ -3696,13 +3816,14 @@ type: Opaque
 # Values are base64-encoded. Manage with a secrets operator (External Secrets Operator,
 # Sealed Secrets, or Vault Agent Injector) rather than committing literal base64 here.
 stringData:
-  MCP_AGGREGATOR_PUBLIC_URL: "https://mcp.example.com"
+  MCP_AGGREGATOR_PUBLIC_URL: 'https://mcp.example.com'
   # Upstream credentials referenced by mcp.yaml via ${VAR_NAME} interpolation:
-  GITHUB_TOKEN: ""       # inject via ESO/Vault
-  SLACK_BOT_TOKEN: ""    # inject via ESO/Vault
+  GITHUB_TOKEN: '' # inject via ESO/Vault
+  SLACK_BOT_TOKEN: '' # inject via ESO/Vault
 ```
 
 **PersistentVolumeClaim (SQLite + mcp.yaml data dir):**
+
 ```yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -3711,14 +3832,15 @@ metadata:
   namespace: mcp-aggregator
 spec:
   accessModes:
-    - ReadWriteOnce   # MUST be RWO — SQLite single-writer constraint (see §16.4)
-  storageClassName: standard-rwo  # Use a provisioner that supports fsGroup (not NFS)
+    - ReadWriteOnce # MUST be RWO — SQLite single-writer constraint (see §16.4)
+  storageClassName: standard-rwo # Use a provisioner that supports fsGroup (not NFS)
   resources:
     requests:
-      storage: 2Gi    # SQLite WAL + journal overhead; increase for high session volume
+      storage: 2Gi # SQLite WAL + journal overhead; increase for high session volume
 ```
 
 **Deployment:**
+
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -3728,9 +3850,9 @@ metadata:
   labels:
     app: mcp-aggregator
 spec:
-  replicas: 1          # MUST be 1 — see §16.4 SQLite single-writer constraint
+  replicas: 1 # MUST be 1 — see §16.4 SQLite single-writer constraint
   strategy:
-    type: Recreate     # MUST be Recreate (not RollingUpdate) — see §16.5
+    type: Recreate # MUST be Recreate (not RollingUpdate) — see §16.5
   selector:
     matchLabels:
       app: mcp-aggregator
@@ -3740,16 +3862,16 @@ spec:
         app: mcp-aggregator
       annotations:
         # Force pod restart when ConfigMap or Secret changes:
-        checksum/config: "{{ include (print $.Template.BasePath \"/configmap.yaml\") . | sha256sum }}"
-        checksum/secrets: "{{ include (print $.Template.BasePath \"/secret.yaml\") . | sha256sum }}"
+        checksum/config: '{{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}'
+        checksum/secrets: '{{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}'
     spec:
       serviceAccountName: mcp-aggregator
-      terminationGracePeriodSeconds: 30   # Must exceed shutdown deadline (10s) + buffer (see §16.5)
+      terminationGracePeriodSeconds: 30 # Must exceed shutdown deadline (10s) + buffer (see §16.5)
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
         runAsGroup: 1001
-        fsGroup: 1001                     # Ensures volume is writable by the process user
+        fsGroup: 1001 # Ensures volume is writable by the process user
         seccompProfile:
           type: RuntimeDefault
       initContainers:
@@ -3757,7 +3879,7 @@ spec:
         # from racing against schema changes on first boot or after an upgrade.
         - name: migrate
           image: ghcr.io/your-org/mcp-aggregator:latest
-          command: ["node", "dist/bin/mcp-aggregator.js", "migrate"]
+          command: ['node', 'dist/bin/mcp-aggregator.js', 'migrate']
           envFrom:
             - configMapRef:
                 name: mcp-aggregator-config
@@ -3791,21 +3913,21 @@ spec:
             - name: mcp-yaml
               mountPath: /data/mcp.yaml
               subPath: mcp.yaml
-              readOnly: true   # Config is managed outside the container; write only via ConfigMap update
-          resources:           # See §16.6 for sizing rationale
+              readOnly: true # Config is managed outside the container; write only via ConfigMap update
+          resources: # See §16.6 for sizing rationale
             requests:
               cpu: 100m
               memory: 128Mi
             limits:
               cpu: 1000m
               memory: 512Mi
-          startupProbe:        # See §16.2
+          startupProbe: # See §16.2
             httpGet:
               path: /health
               port: mcp
             failureThreshold: 30
             periodSeconds: 2
-          readinessProbe:      # See §16.2
+          readinessProbe: # See §16.2
             httpGet:
               path: /health
               port: mcp
@@ -3813,7 +3935,7 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
-          livenessProbe:       # See §16.2
+          livenessProbe: # See §16.2
             httpGet:
               path: /health
               port: mcp
@@ -3831,7 +3953,7 @@ spec:
               exec:
                 # Give the process time to receive SIGTERM and drain sessions before
                 # the container is killed. Combined with terminationGracePeriodSeconds.
-                command: ["/bin/sh", "-c", "sleep 5"]
+                command: ['/bin/sh', '-c', 'sleep 5']
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -3839,10 +3961,11 @@ spec:
         - name: mcp-yaml
           configMap:
             name: mcp-aggregator-mcp-yaml
-            defaultMode: 0600   # Restrict to owner-read/write per §3.1 security requirements
+            defaultMode: 0600 # Restrict to owner-read/write per §3.1 security requirements
 ```
 
 **ConfigMap for mcp.yaml:**
+
 ```yaml
 apiVersion: v1
 kind: ConfigMap
@@ -3874,6 +3997,7 @@ data:
 > **mcp.yaml in a ConfigMap vs mounted file:** Mounting `mcp.yaml` from a ConfigMap via `subPath` means Kubernetes ConfigMap updates do NOT trigger chokidar file-watch events — the `subPath` mount bypasses the symlink-swap mechanism Kubernetes uses for non-subPath ConfigMap mounts. Operators MUST send `SIGHUP` to the process after a ConfigMap update to trigger a manual reload: `kubectl exec -n mcp-aggregator deploy/mcp-aggregator -- kill -HUP 1`. Alternatively, use the full mount (no `subPath`) with a projected volume and accept that the file appears at a different path within the data directory, or use a rolling restart (`kubectl rollout restart`).
 
 **Service:**
+
 ```yaml
 apiVersion: v1
 kind: Service
@@ -3890,7 +4014,7 @@ spec:
       port: 4000
       targetPort: mcp
       protocol: TCP
-  type: ClusterIP   # Not LoadBalancer — expose via Ingress with TLS termination (§16.3)
+  type: ClusterIP # Not LoadBalancer — expose via Ingress with TLS termination (§16.3)
 ```
 
 ---
@@ -3900,6 +4024,7 @@ spec:
 The `/health` endpoint (on the primary MCP port) is the single probe target. It is always available on the primary port regardless of two-port layout (see §3).
 
 **`GET /health` response shape:**
+
 ```json
 {
   "status": "ok",
@@ -3914,13 +4039,14 @@ When the service is degraded (e.g. DB unreachable), it returns HTTP 503 with `"s
 
 **Probe strategy:**
 
-| Probe | Purpose | Failure action |
-|-------|---------|----------------|
-| **Startup** | Waits for migrations + YAML parse + port bind to complete. High `failureThreshold` (e.g. 30 × 2s = 60s) to allow slow SQLite migration on large databases. | Container restarted only after startup period exhausted. |
-| **Readiness** | Confirms the process is ready to serve traffic. Fails if the DB is unavailable or migrations are pending (the migration initContainer should prevent the latter). The kubelet removes the pod from Service endpoints while this is failing — prevents traffic routing to a pod mid-startup or mid-restart. | Pod removed from Service endpoints; no traffic routed. |
-| **Liveness** | Detects a hung or deadlocked process. Lower frequency (15s) to reduce noise. Failing liveness kills and restarts the container — this is a last resort and should not be triggered by transient DB busy events. | Container killed and restarted. |
+| Probe         | Purpose                                                                                                                                                                                                                                                                                                    | Failure action                                           |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| **Startup**   | Waits for migrations + YAML parse + port bind to complete. High `failureThreshold` (e.g. 30 × 2s = 60s) to allow slow SQLite migration on large databases.                                                                                                                                                 | Container restarted only after startup period exhausted. |
+| **Readiness** | Confirms the process is ready to serve traffic. Fails if the DB is unavailable or migrations are pending (the migration initContainer should prevent the latter). The kubelet removes the pod from Service endpoints while this is failing — prevents traffic routing to a pod mid-startup or mid-restart. | Pod removed from Service endpoints; no traffic routed.   |
+| **Liveness**  | Detects a hung or deadlocked process. Lower frequency (15s) to reduce noise. Failing liveness kills and restarts the container — this is a last resort and should not be triggered by transient DB busy events.                                                                                            | Container killed and restarted.                          |
 
 **`/health` implementation requirements:**
+
 - MUST respond within 2 seconds (probe `timeoutSeconds` is set to 3s with 1s margin).
 - MUST perform a lightweight DB liveness check: `SELECT 1` against the SQLite connection. A failed check returns HTTP 503.
 - MUST NOT perform upstream MCP server connectivity checks — those are dynamic and their failure does not mean the proxy is unhealthy.
@@ -3936,6 +4062,7 @@ When the service is degraded (e.g. DB unreachable), it returns HTTP 503 with `"s
 TLS MUST be terminated at the ingress layer, not inside the `mcp-aggregator` process. The proxy speaks plain HTTP internally; the ingress controller (nginx, Traefik, or Caddy) handles TLS.
 
 **Kubernetes Ingress (nginx):**
+
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -3943,14 +4070,14 @@ metadata:
   name: mcp-aggregator
   namespace: mcp-aggregator
   annotations:
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"   # Long-lived SSE/streaming connections
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-buffering: "off"        # Required for SSE — disable response buffering
-    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '3600' # Long-lived SSE/streaming connections
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '3600'
+    nginx.ingress.kubernetes.io/proxy-buffering: 'off' # Required for SSE — disable response buffering
+    nginx.ingress.kubernetes.io/proxy-http-version: '1.1'
     nginx.ingress.kubernetes.io/configuration-snippet: |
       proxy_set_header Connection '';                          # SSE: disable connection close on idle
       chunked_transfer_encoding on;
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    cert-manager.io/cluster-issuer: 'letsencrypt-prod'
 spec:
   ingressClassName: nginx
   tls:
@@ -3971,6 +4098,7 @@ spec:
 ```
 
 **Critical reverse proxy requirements for MCP Streamable HTTP:**
+
 1. **Disable response buffering** (`proxy_buffering off` in nginx, `flush_interval 0` in Traefik). MCP uses chunked streaming; buffering causes agents to hang waiting for a complete response.
 2. **Long read/send timeouts** (≥3600s). MCP sessions are long-lived HTTP connections; default 60s proxy timeouts cause spurious disconnections.
 3. **HTTP/1.1 keepalive** between ingress and backend. Ensure the `Connection: keep-alive` header is preserved upstream.
@@ -3978,6 +4106,7 @@ spec:
 5. **WebSocket upgrade not required.** MCP Streamable HTTP uses chunked HTTP/1.1, not WebSocket. Do not add WebSocket upgrade headers.
 
 **Caddy (alternative — recommended for simplicity):**
+
 ```caddyfile
 mcp.example.com {
   reverse_proxy mcp-aggregator.mcp-aggregator.svc.cluster.local:4000 {
@@ -4011,6 +4140,7 @@ When `MCP_AGGREGATOR_API_PORT` is set, deploy two Services and two Ingress rules
 The Kubernetes Deployment spec in §16.1 mandates `replicas: 1` and `strategy: Recreate` to enforce this.
 
 **Consequences for availability during upgrades:**
+
 - With `Recreate` strategy, there is a brief downtime window between the old pod terminating and the new pod becoming ready (typically 5–20 seconds for migration + startup).
 - MCP agents experience this as a connection drop. Agents using `streamablehttp` transport will see the HTTP stream close; they should reconnect automatically.
 - Session state in SQLite is preserved across restarts — the crash recovery path (§9.5 step 4) handles any sessions that were active at shutdown.
@@ -4025,6 +4155,7 @@ To support multiple replicas, the persistence layer must move to a shared extern
 ### 16.5 Graceful Shutdown and Zero-Downtime Deployments
 
 **Shutdown sequence (within the process):**
+
 1. Receive `SIGTERM` (sent by Kubernetes when the pod is being terminated).
 2. Stop accepting new HTTP connections (Express server `close()`).
 3. For all active MCP sessions: call `engine.closeSession()` concurrently, allowing up to 10 seconds for sessions to drain (per §6.5 graceful shutdown spec).
@@ -4040,9 +4171,11 @@ To support multiple replicas, the persistence layer must move to a shared extern
 **Zero-downtime caveat:** True zero-downtime is not achievable with a single SQLite-backed replica under `Recreate` strategy. The recommended production SLA for upgrades is "brief downtime" (< 30s), not zero-downtime. Document this in runbooks. If zero-downtime is a hard requirement, the v2 PostgreSQL migration path (§16.4) is a prerequisite.
 
 **`SIGHUP` for config reload without restart:** The process registers a `SIGHUP` handler (Milestone 3) that triggers a manual config reload equivalent to chokidar detecting a file change. In Kubernetes, send it as:
+
 ```sh
 kubectl exec -n mcp-aggregator deploy/mcp-aggregator -- kill -HUP 1
 ```
+
 Use this after updating the `mcp-aggregator-mcp-yaml` ConfigMap to reload the new config without a pod restart.
 
 ---
@@ -4050,18 +4183,20 @@ Use this after updating the `mcp-aggregator-mcp-yaml` ConfigMap to reload the ne
 ### 16.6 Container Resource Limits and Requests
 
 Resource sizing depends primarily on:
+
 - Number of concurrent MCP sessions (each holds upstream connections and in-memory session state)
 - Number of stdio upstream subprocesses (each is a Node.js child process; `better-sqlite3` adds native module overhead)
 - SQLite WAL cache size (`PRAGMA cache_size = -8000` = 8MB baseline)
 
 **Baseline sizing (≤20 concurrent sessions, ≤5 stdio upstreams per session):**
 
-| Resource | Request | Limit | Rationale |
-|----------|---------|-------|-----------|
-| CPU | 100m | 1000m | Idle: near-zero. Spikes during session-start (parallel upstream connects) and hot-reload. Cap at 1 CPU to prevent noisy-neighbour on shared nodes. |
-| Memory | 128Mi | 512Mi | Node.js heap + SQLite 8MB WAL cache + per-session upstream handle overhead (~2MB/session estimate). Limit at 512Mi gives headroom for 20 sessions × 5 stdio upstreams. |
+| Resource | Request | Limit | Rationale                                                                                                                                                              |
+| -------- | ------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CPU      | 100m    | 1000m | Idle: near-zero. Spikes during session-start (parallel upstream connects) and hot-reload. Cap at 1 CPU to prevent noisy-neighbour on shared nodes.                     |
+| Memory   | 128Mi   | 512Mi | Node.js heap + SQLite 8MB WAL cache + per-session upstream handle overhead (~2MB/session estimate). Limit at 512Mi gives headroom for 20 sessions × 5 stdio upstreams. |
 
 **Scaling guidance:**
+
 - Each additional concurrent session adds approximately 2–5 MB of heap (upstream handles, in-flight call tracking, session state).
 - Each stdio upstream subprocess contributes its own process overhead outside the Node.js heap — this appears in cgroup memory accounting but not in Node's `process.memoryUsage()`. A Node.js stdio MCP server typically uses 40–80 MB. With 20 sessions × 5 stdio upstreams = 100 subprocesses, add 4–8 GB to memory budgeting.
 - For high stdio subprocess counts, deploy stdio upstreams as separate long-running services with `streamablehttp` transport instead of spawning them per session (see §5.3 operational warning).
@@ -4094,7 +4229,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              role: agent-workload   # Label agent namespaces with this
+              role: agent-workload # Label agent namespaces with this
       ports:
         - port: 4000
           protocol: TCP
@@ -4157,54 +4292,57 @@ spec:
 All log output MUST be newline-delimited JSON (NDJSON) in production (`NODE_ENV=production`). In development, human-readable format is acceptable.
 
 **Log entry schema:**
+
 ```json
 {
-  "ts":        "2026-03-10T12:00:00.000Z",   // ISO 8601 UTC timestamp
-  "level":     "info",                         // trace|debug|info|warn|error|fatal
-  "msg":       "Session created",              // Human-readable message
-  "service":   "mcp-aggregator",
-  "version":   "1.2.3",                        // From package.json version
-  "pid":       1,
-  "session_id": "uuid",                        // Present on session-scoped events
-  "agent_id":  "garry",                        // Present when known
-  "server_id": "uuid",                         // Present on upstream-scoped events
-  "alias":     "github",                       // Present when alias is relevant
-  "req_id":    "uuid",                         // Present on HTTP request-scoped events
-  "duration_ms": 42,                           // Present on timed operations
-  "error": {                                   // Present on warn/error/fatal
+  "ts": "2026-03-10T12:00:00.000Z", // ISO 8601 UTC timestamp
+  "level": "info", // trace|debug|info|warn|error|fatal
+  "msg": "Session created", // Human-readable message
+  "service": "mcp-aggregator",
+  "version": "1.2.3", // From package.json version
+  "pid": 1,
+  "session_id": "uuid", // Present on session-scoped events
+  "agent_id": "garry", // Present when known
+  "server_id": "uuid", // Present on upstream-scoped events
+  "alias": "github", // Present when alias is relevant
+  "req_id": "uuid", // Present on HTTP request-scoped events
+  "duration_ms": 42, // Present on timed operations
+  "error": {
+    // Present on warn/error/fatal
     "message": "ENOENT: no such file",
     "code": "ENOENT",
-    "stack": "..."                             // Omitted in production unless log level = debug
+    "stack": "..." // Omitted in production unless log level = debug
   }
 }
 ```
 
 **Required log events and their levels:**
 
-| Event | Level | Key fields |
-|-------|-------|-----------|
-| Process started | `info` | `port`, `home`, `version` |
-| Migration applied | `info` | `migration_name` |
-| Crash recovery: stale sessions closed | `info` | `count` |
-| YAML loaded/reloaded | `info` | `servers_count`, `guilds_count`, `agents_count` |
-| YAML parse error (hot reload) | `error` | `error` (parse message, no secrets) |
-| Session created | `info` | `session_id`, `agent_id`, `guild_slugs`, `tool_count` |
-| Session closed | `info` | `session_id`, `agent_id`, `duration_ms`, `reason` |
-| Upstream connected | `info` | `session_id`, `alias`, `tool_count`, `duration_ms` |
-| Upstream error (connect) | `warn` | `session_id`, `alias`, `error.code`, `error.message` |
-| Upstream skipped (timeout) | `warn` | `session_id`, `alias`, `timeout_ms` |
-| Upstream error (keepalive ping) | `warn` | `session_id`, `alias` |
-| Upstream recovered | `info` | `session_id`, `alias` |
-| Guild hint discarded | `warn` | `agent_id`, `unknown_slugs` |
-| Tool count warning threshold exceeded | `warn` | `session_id`, `agent_id`, `tool_count`, `threshold` |
-| Config change (reload triggered) | `info` | `source`, `affected_agent_count` |
-| Rate limit exceeded | `warn` | `req_id`, `remote_ip`, `endpoint` |
-| Subprocess SIGKILL sent | `warn` | `session_id`, `alias`, `pid` |
-| Process shutting down | `info` | `active_sessions` |
-| SIGTERM received | `info` | — |
-| Unhandled exception (global handler) | `fatal` | `error` |
+| Event                                 | Level   | Key fields                                            |
+| ------------------------------------- | ------- | ----------------------------------------------------- |
+| Process started                       | `info`  | `port`, `home`, `version`                             |
+| Migration applied                     | `info`  | `migration_name`                                      |
+| Crash recovery: stale sessions closed | `info`  | `count`                                               |
+| YAML loaded/reloaded                  | `info`  | `servers_count`, `guilds_count`, `agents_count`       |
+| YAML parse error (hot reload)         | `error` | `error` (parse message, no secrets)                   |
+| Session created                       | `info`  | `session_id`, `agent_id`, `guild_slugs`, `tool_count` |
+| Session closed                        | `info`  | `session_id`, `agent_id`, `duration_ms`, `reason`     |
+| Upstream connected                    | `info`  | `session_id`, `alias`, `tool_count`, `duration_ms`    |
+| Upstream error (connect)              | `warn`  | `session_id`, `alias`, `error.code`, `error.message`  |
+| Upstream skipped (timeout)            | `warn`  | `session_id`, `alias`, `timeout_ms`                   |
+| Upstream error (keepalive ping)       | `warn`  | `session_id`, `alias`                                 |
+| Upstream recovered                    | `info`  | `session_id`, `alias`                                 |
+| Guild hint discarded                  | `warn`  | `agent_id`, `unknown_slugs`                           |
+| Tool count warning threshold exceeded | `warn`  | `session_id`, `agent_id`, `tool_count`, `threshold`   |
+| Config change (reload triggered)      | `info`  | `source`, `affected_agent_count`                      |
+| Rate limit exceeded                   | `warn`  | `req_id`, `remote_ip`, `endpoint`                     |
+| Subprocess SIGKILL sent               | `warn`  | `session_id`, `alias`, `pid`                          |
+| Process shutting down                 | `info`  | `active_sessions`                                     |
+| SIGTERM received                      | `info`  | —                                                     |
+| Unhandled exception (global handler)  | `fatal` | `error`                                               |
 
 **Secret safety in logging:**
+
 - Env var values and header values MUST NEVER appear in any log entry at any level. Log only key names.
 - Upstream server connection config logged at `debug` level MUST omit `env` and `headers` values.
 - HTTP request bodies for `PUT /servers/:id/env` and `PUT /servers/:id/headers` MUST be redacted in access logs (log only key names, not values).
@@ -4230,7 +4368,7 @@ Run Litestream as a sidecar container in the same pod:
 # Add to the Deployment's containers list (alongside the main mcp-aggregator container):
 - name: litestream
   image: litestream/litestream:0.3.13
-  args: ["replicate"]
+  args: ['replicate']
   env:
     - name: LITESTREAM_ACCESS_KEY_ID
       valueFrom:
@@ -4266,12 +4404,13 @@ dbs:
         bucket: your-backup-bucket
         path: mcp-aggregator/db.sqlite
         region: us-east-1
-        sync-interval: 10s       # WAL frame sync frequency
-        retention: 72h            # Keep 72h of WAL for point-in-time recovery
+        sync-interval: 10s # WAL frame sync frequency
+        retention: 72h # Keep 72h of WAL for point-in-time recovery
         retention-check-interval: 1h
 ```
 
 **Restore procedure:**
+
 ```sh
 # Stop the mcp-aggregator pod first (scale to 0 to release the SQLite write lock):
 kubectl scale -n mcp-aggregator deploy/mcp-aggregator --replicas=0
@@ -4288,6 +4427,7 @@ kubectl scale -n mcp-aggregator deploy/mcp-aggregator --replicas=1
 ```
 
 **Point-in-time restore:** Litestream retains WAL frames for the `retention` period (72h above). To restore to a specific timestamp:
+
 ```sh
 litestream restore -o /data/db.sqlite -timestamp "2026-03-10T10:00:00Z" \
   s3://your-backup-bucket/mcp-aggregator/db.sqlite
@@ -4304,7 +4444,7 @@ metadata:
   name: mcp-aggregator-backup
   namespace: mcp-aggregator
 spec:
-  schedule: "0 * * * *"    # Hourly
+  schedule: '0 * * * *' # Hourly
   concurrencyPolicy: Forbid
   jobTemplate:
     spec:
@@ -4326,7 +4466,7 @@ spec:
               volumeMounts:
                 - name: data
                   mountPath: /data
-                  readOnly: true   # Backup process needs only read access
+                  readOnly: true # Backup process needs only read access
           volumes:
             - name: data
               persistentVolumeClaim:
@@ -4336,6 +4476,7 @@ spec:
 > **SQLite `.backup` vs file copy:** Always use `sqlite3 .backup` (or the SQLite Online Backup API) rather than copying the raw `.sqlite` file. A raw file copy may capture the database mid-write and produce a corrupted backup. The `.backup` command takes a consistent snapshot using SQLite's internal checkpointing, even with WAL mode enabled.
 
 **RTO/RPO targets:**
+
 - With Litestream: RPO ≤ 10 seconds (WAL sync interval), RTO ≤ 5 minutes (restore from S3 + pod restart).
 - With hourly CronJob: RPO ≤ 1 hour, RTO ≤ 10 minutes.
 - The YAML config (in ConfigMap) has RPO = 0 and RTO = 0 (it is version-controlled and applied at deploy time).
@@ -4574,32 +4715,32 @@ Building on §16.8, this section defines the mandatory correlation fields that M
 
 #### Mandatory Correlation Fields
 
-| Field | Type | When present | Description |
-|-------|------|-------------|-------------|
-| `req_id` | UUID | All HTTP request handlers | Generated by Express middleware at ingress; forwarded to all downstream calls within that request. Same value for all log entries within a single HTTP request lifecycle. |
-| `session_id` | UUID | All session-scoped events | The MCP session UUID, present from session creation through session close. Links upstream events, tool calls, and reload events to the session that originated them. |
-| `agent_id` | string | When agent is known | Agent slug. Present on session events, upstream events, and config events. `null` for untracked guild connections. |
-| `trace_id` | UUID | All events | A new UUID generated at process start that changes on restart. Used to correlate a single process lifetime's events in log aggregation. In v2 when OpenTelemetry is adopted, this field is replaced by the W3C `traceparent` trace ID. |
-| `reload_id` | UUID | Config reload events | A unique ID assigned to each reload cycle. Links the config.changed event, all affected session RELOADING transitions, and the resulting tools/list_changed notifications to a single reload cycle. |
-| `call_id` | UUID | Tool call events | A unique ID for each `tools/call` invocation, linking the inbound request log, the upstream forward log, and the response log. |
+| Field        | Type   | When present              | Description                                                                                                                                                                                                                            |
+| ------------ | ------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `req_id`     | UUID   | All HTTP request handlers | Generated by Express middleware at ingress; forwarded to all downstream calls within that request. Same value for all log entries within a single HTTP request lifecycle.                                                              |
+| `session_id` | UUID   | All session-scoped events | The MCP session UUID, present from session creation through session close. Links upstream events, tool calls, and reload events to the session that originated them.                                                                   |
+| `agent_id`   | string | When agent is known       | Agent slug. Present on session events, upstream events, and config events. `null` for untracked guild connections.                                                                                                                     |
+| `trace_id`   | UUID   | All events                | A new UUID generated at process start that changes on restart. Used to correlate a single process lifetime's events in log aggregation. In v2 when OpenTelemetry is adopted, this field is replaced by the W3C `traceparent` trace ID. |
+| `reload_id`  | UUID   | Config reload events      | A unique ID assigned to each reload cycle. Links the config.changed event, all affected session RELOADING transitions, and the resulting tools/list_changed notifications to a single reload cycle.                                    |
+| `call_id`    | UUID   | Tool call events          | A unique ID for each `tools/call` invocation, linking the inbound request log, the upstream forward log, and the response log.                                                                                                         |
 
 #### Log Entry Shape (extended from §16.8)
 
 ```json
 {
-  "ts":         "2026-03-10T12:00:00.123Z",
-  "level":      "info",
-  "msg":        "Tool call forwarded",
-  "service":    "mcp-aggregator",
-  "version":    "1.2.3",
-  "pid":        1,
-  "trace_id":   "7f3a2b1c-...",
-  "req_id":     "a1b2c3d4-...",
+  "ts": "2026-03-10T12:00:00.123Z",
+  "level": "info",
+  "msg": "Tool call forwarded",
+  "service": "mcp-aggregator",
+  "version": "1.2.3",
+  "pid": 1,
+  "trace_id": "7f3a2b1c-...",
+  "req_id": "a1b2c3d4-...",
   "session_id": "s-uuid",
-  "agent_id":   "garry",
-  "call_id":    "c-uuid",
-  "alias":      "github",
-  "tool_name":  "github__create_pr",
+  "agent_id": "garry",
+  "call_id": "c-uuid",
+  "alias": "github",
+  "tool_name": "github__create_pr",
   "duration_ms": 342
 }
 ```
@@ -4608,16 +4749,16 @@ Building on §16.8, this section defines the mandatory correlation fields that M
 
 High-frequency events MUST be sampled in production to prevent log volume from overwhelming aggregation pipelines:
 
-| Event | Default sampling | Override env var |
-|-------|-----------------|-----------------|
-| `tools/list` requests | 1-in-10 | `MCP_AGGREGATOR_LOG_SAMPLE_TOOLS_LIST` |
-| Keepalive ping success | 1-in-50 | `MCP_AGGREGATOR_LOG_SAMPLE_PING_SUCCESS` |
-| `/health` probe requests | Never logged | — |
-| `/metrics` scrape requests | Never logged | — |
-| `tools/call` forwarded | Always logged at `debug`, sampled 1-in-5 at `info` | `MCP_AGGREGATOR_LOG_SAMPLE_TOOL_CALLS` |
-| Upstream connect/disconnect | Always logged | — |
-| Session create/close | Always logged | — |
-| Error events (`warn`/`error`/`fatal`) | Never sampled | — |
+| Event                                 | Default sampling                                   | Override env var                         |
+| ------------------------------------- | -------------------------------------------------- | ---------------------------------------- |
+| `tools/list` requests                 | 1-in-10                                            | `MCP_AGGREGATOR_LOG_SAMPLE_TOOLS_LIST`   |
+| Keepalive ping success                | 1-in-50                                            | `MCP_AGGREGATOR_LOG_SAMPLE_PING_SUCCESS` |
+| `/health` probe requests              | Never logged                                       | —                                        |
+| `/metrics` scrape requests            | Never logged                                       | —                                        |
+| `tools/call` forwarded                | Always logged at `debug`, sampled 1-in-5 at `info` | `MCP_AGGREGATOR_LOG_SAMPLE_TOOL_CALLS`   |
+| Upstream connect/disconnect           | Always logged                                      | —                                        |
+| Session create/close                  | Always logged                                      | —                                        |
+| Error events (`warn`/`error`/`fatal`) | Never sampled                                      | —                                        |
 
 Sampling is applied per log call site, not per log entry. The sampling decision is stable within a `call_id` — if the initial call is sampled, all related events (forward, response, error) are logged.
 
@@ -4671,16 +4812,16 @@ Reload.cycle [reload_id=<uuid>] (root span)
 
 ```typescript
 interface Span {
-  trace_id:    string;   // W3C trace ID format (32 hex chars)
-  span_id:     string;   // W3C span ID format (16 hex chars)
+  trace_id: string; // W3C trace ID format (32 hex chars)
+  span_id: string; // W3C span ID format (16 hex chars)
   parent_span_id?: string;
-  name:        string;   // e.g. "Upstream.connect"
-  start_time:  string;   // ISO 8601
-  end_time:    string;   // ISO 8601
+  name: string; // e.g. "Upstream.connect"
+  start_time: string; // ISO 8601
+  end_time: string; // ISO 8601
   duration_ms: number;
-  status:      "ok" | "error";
-  attributes:  Record<string, string | number | boolean>;
-  events:      Array<{ time: string; name: string; attributes?: Record<string, unknown> }>;
+  status: 'ok' | 'error';
+  attributes: Record<string, string | number | boolean>;
+  events: Array<{ time: string; name: string; attributes?: Record<string, unknown> }>;
 }
 ```
 
@@ -4703,6 +4844,7 @@ These SLOs are the authoritative targets for v1. Alert rules in §17.5 fire when
 **Error budget:** 0.5% = 216 minutes per 30 days.
 
 **Measurement:** Prometheus query using the HTTP metrics from §17.1:
+
 ```promql
 # Availability ratio over 5 min windows
 sum(rate(mcp_aggregator_http_requests_total{path_group="/health",status_class="2xx"}[5m]))
@@ -4719,6 +4861,7 @@ sum(rate(mcp_aggregator_http_requests_total{path_group="/health"}[5m]))
 **Target:** p95 ≤ 10 seconds over any 1-hour window.
 
 **Measurement:**
+
 ```promql
 histogram_quantile(0.95,
   sum(rate(mcp_aggregator_session_start_duration_seconds_bucket[1h])) by (le)
@@ -4734,6 +4877,7 @@ histogram_quantile(0.95,
 **Target:** ≤ 1% error rate over any 1-hour window.
 
 **Measurement:**
+
 ```promql
 sum(rate(mcp_aggregator_tool_calls_total{result="error"}[1h]))
 /
@@ -4749,6 +4893,7 @@ sum(rate(mcp_aggregator_tool_calls_total[1h]))
 **Target:** ≥ 95% success rate per upstream alias over any 1-hour window.
 
 **Measurement:**
+
 ```promql
 # Per-alias success rate
 sum by (alias) (rate(mcp_aggregator_upstream_connect_errors_total[1h]))
@@ -4782,7 +4927,6 @@ groups:
   - name: mcp_aggregator_availability
     interval: 30s
     rules:
-
       - alert: McpAggregatorDown
         expr: mcp_aggregator_up == 0
         for: 1m
@@ -4790,9 +4934,9 @@ groups:
           severity: critical
           team: platform
         annotations:
-          summary: "MCP Aggregator process is unhealthy"
-          description: "The /health endpoint is returning non-200 or is unreachable. All agent MCP sessions are affected. Check pod logs immediately."
-          runbook: "https://wiki.example.com/runbooks/mcp-aggregator/process-down"
+          summary: 'MCP Aggregator process is unhealthy'
+          description: 'The /health endpoint is returning non-200 or is unreachable. All agent MCP sessions are affected. Check pod logs immediately.'
+          runbook: 'https://wiki.example.com/runbooks/mcp-aggregator/process-down'
 
       - alert: McpAggregatorAvailabilityBurnRateFast
         # Burns error budget 14x faster than allowed — page immediately
@@ -4806,9 +4950,9 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "MCP Aggregator: availability SLO fast burn (14x)"
-          description: "Error rate on /health is {{ $value | humanizePercentage }} over 5m. Error budget will be exhausted in ~2 hours."
-          runbook: "https://wiki.example.com/runbooks/mcp-aggregator/availability-burn"
+          summary: 'MCP Aggregator: availability SLO fast burn (14x)'
+          description: 'Error rate on /health is {{ $value | humanizePercentage }} over 5m. Error budget will be exhausted in ~2 hours.'
+          runbook: 'https://wiki.example.com/runbooks/mcp-aggregator/availability-burn'
 
       - alert: McpAggregatorAvailabilityBurnRateSlow
         # Burns error budget 3x faster than allowed — warn
@@ -4822,12 +4966,11 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "MCP Aggregator: availability SLO slow burn (3x)"
-          description: "Error rate on /health is {{ $value | humanizePercentage }} over 1h. Error budget consumption elevated."
+          summary: 'MCP Aggregator: availability SLO slow burn (3x)'
+          description: 'Error rate on /health is {{ $value | humanizePercentage }} over 1h. Error budget consumption elevated.'
 
   - name: mcp_aggregator_sessions
     rules:
-
       - alert: McpAggregatorSessionStartSlow
         expr: |
           histogram_quantile(0.95,
@@ -4837,9 +4980,9 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "MCP Aggregator: session start p95 > 10s"
-          description: "Session start p95 is {{ $value | humanizeDuration }}. Agents are waiting too long to get tools. Likely cause: upstream connect timeouts or resource exhaustion."
-          runbook: "https://wiki.example.com/runbooks/mcp-aggregator/slow-session-start"
+          summary: 'MCP Aggregator: session start p95 > 10s'
+          description: 'Session start p95 is {{ $value | humanizeDuration }}. Agents are waiting too long to get tools. Likely cause: upstream connect timeouts or resource exhaustion.'
+          runbook: 'https://wiki.example.com/runbooks/mcp-aggregator/slow-session-start'
 
       - alert: McpAggregatorSessionsStuckReloading
         expr: mcp_aggregator_sessions_by_state{state="RELOADING"} > 0
@@ -4847,9 +4990,9 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "MCP Aggregator: sessions stuck in RELOADING for > 60s"
-          description: "{{ $value }} session(s) have been in RELOADING state for over 60 seconds. Expected reload duration is < 30s. Likely cause: upstream failing to connect during reload, or reload cycle not completing."
-          runbook: "https://wiki.example.com/runbooks/mcp-aggregator/stuck-reloading"
+          summary: 'MCP Aggregator: sessions stuck in RELOADING for > 60s'
+          description: '{{ $value }} session(s) have been in RELOADING state for over 60 seconds. Expected reload duration is < 30s. Likely cause: upstream failing to connect during reload, or reload cycle not completing.'
+          runbook: 'https://wiki.example.com/runbooks/mcp-aggregator/stuck-reloading'
 
       - alert: McpAggregatorZeroActiveSessions
         # Only fire during expected working hours — adjust for timezone
@@ -4858,21 +5001,20 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "MCP Aggregator: no active sessions for 10 minutes"
-          description: "No MCP sessions are currently active. This may be expected (no agents running), or may indicate agents are unable to connect."
+          summary: 'MCP Aggregator: no active sessions for 10 minutes'
+          description: 'No MCP sessions are currently active. This may be expected (no agents running), or may indicate agents are unable to connect.'
 
   - name: mcp_aggregator_upstreams
     rules:
-
       - alert: McpAggregatorUpstreamConsecutiveErrors
         expr: mcp_aggregator_upstream_consecutive_errors > 3
         for: 0m
         labels:
           severity: warning
         annotations:
-          summary: "MCP Aggregator: upstream {{ $labels.alias }} has {{ $value }} consecutive errors"
+          summary: 'MCP Aggregator: upstream {{ $labels.alias }} has {{ $value }} consecutive errors'
           description: "Upstream '{{ $labels.alias }}' has failed to connect {{ $value }} times in a row. Agents relying on this upstream are receiving 0 tools from it. Check upstream server health."
-          runbook: "https://wiki.example.com/runbooks/mcp-aggregator/upstream-connect-failure"
+          runbook: 'https://wiki.example.com/runbooks/mcp-aggregator/upstream-connect-failure'
 
       - alert: McpAggregatorUpstreamConsecutiveErrorsCritical
         expr: mcp_aggregator_upstream_consecutive_errors > 10
@@ -4880,9 +5022,9 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "MCP Aggregator: upstream {{ $labels.alias }} has {{ $value }} consecutive errors (critical)"
+          summary: 'MCP Aggregator: upstream {{ $labels.alias }} has {{ $value }} consecutive errors (critical)'
           description: "Upstream '{{ $labels.alias }}' has been failing for an extended period. This is likely a permanent failure requiring operator intervention (dead process, revoked credentials, network partition)."
-          runbook: "https://wiki.example.com/runbooks/mcp-aggregator/upstream-connect-failure"
+          runbook: 'https://wiki.example.com/runbooks/mcp-aggregator/upstream-connect-failure'
 
       - alert: McpAggregatorSubprocessCountRunaway
         expr: sum(mcp_aggregator_subprocesses_active) > 200
@@ -4890,9 +5032,9 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "MCP Aggregator: subprocess count high ({{ $value }})"
-          description: "Total stdio subprocess count is {{ $value }}. Expected = sessions × stdio_upstreams_per_session. A runaway count indicates sessions are not being cleaned up after disconnect. Check for zombie processes and session close failures."
-          runbook: "https://wiki.example.com/runbooks/mcp-aggregator/subprocess-runaway"
+          summary: 'MCP Aggregator: subprocess count high ({{ $value }})'
+          description: 'Total stdio subprocess count is {{ $value }}. Expected = sessions × stdio_upstreams_per_session. A runaway count indicates sessions are not being cleaned up after disconnect. Check for zombie processes and session close failures.'
+          runbook: 'https://wiki.example.com/runbooks/mcp-aggregator/subprocess-runaway'
 
       - alert: McpAggregatorAgentZeroTools
         expr: mcp_aggregator_tool_count_by_agent == 0
@@ -4900,22 +5042,21 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "MCP Aggregator: agent {{ $labels.agent_id }} has 0 tools for 5+ minutes"
+          summary: 'MCP Aggregator: agent {{ $labels.agent_id }} has 0 tools for 5+ minutes'
           description: "Agent '{{ $labels.agent_id }}' has had 0 tools in its active session for over 5 minutes. This usually means no guilds are assigned, or all upstreams for its guilds failed to connect."
-          runbook: "https://wiki.example.com/runbooks/mcp-aggregator/agent-zero-tools"
+          runbook: 'https://wiki.example.com/runbooks/mcp-aggregator/agent-zero-tools'
 
   - name: mcp_aggregator_database
     rules:
-
       - alert: McpAggregatorDbBusyErrors
         expr: rate(mcp_aggregator_db_busy_errors_total[5m]) > 0
         for: 1m
         labels:
           severity: warning
         annotations:
-          summary: "MCP Aggregator: SQLite BUSY errors detected"
-          description: "SQLite is returning BUSY errors (write lock contention beyond 5s busy_timeout). Requests are returning HTTP 503. Likely cause: high concurrent session starts or a long-running write (YAML sync) blocking reads."
-          runbook: "https://wiki.example.com/runbooks/mcp-aggregator/sqlite-busy"
+          summary: 'MCP Aggregator: SQLite BUSY errors detected'
+          description: 'SQLite is returning BUSY errors (write lock contention beyond 5s busy_timeout). Requests are returning HTTP 503. Likely cause: high concurrent session starts or a long-running write (YAML sync) blocking reads.'
+          runbook: 'https://wiki.example.com/runbooks/mcp-aggregator/sqlite-busy'
 
       - alert: McpAggregatorWalCheckpointBusy
         expr: mcp_aggregator_wal_checkpoint_pages{type="busy"} > 50
@@ -4923,13 +5064,12 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "MCP Aggregator: WAL checkpoint has {{ $value }} busy pages"
-          description: "The WAL checkpoint is unable to flush {{ $value }} pages because readers hold open read transactions. If this persists, the WAL file will grow indefinitely. Check for long-running read queries or stale connections."
-          runbook: "https://wiki.example.com/runbooks/mcp-aggregator/wal-busy"
+          summary: 'MCP Aggregator: WAL checkpoint has {{ $value }} busy pages'
+          description: 'The WAL checkpoint is unable to flush {{ $value }} pages because readers hold open read transactions. If this persists, the WAL file will grow indefinitely. Check for long-running read queries or stale connections.'
+          runbook: 'https://wiki.example.com/runbooks/mcp-aggregator/wal-busy'
 
   - name: mcp_aggregator_tool_calls
     rules:
-
       - alert: McpAggregatorToolCallErrorRateHigh
         expr: |
           sum(rate(mcp_aggregator_tool_calls_total{result="error"}[5m]))
@@ -4940,8 +5080,8 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "MCP Aggregator: tool call error rate {{ $value | humanizePercentage }}"
-          description: "More than 5% of tool calls are returning proxy-layer errors over the last 5 minutes. This indicates upstreams are failing mid-session (after successful connect). Check for network instability or upstream process crashes."
+          summary: 'MCP Aggregator: tool call error rate {{ $value | humanizePercentage }}'
+          description: 'More than 5% of tool calls are returning proxy-layer errors over the last 5 minutes. This indicates upstreams are failing mid-session (after successful connect). Check for network instability or upstream process crashes.'
 ```
 
 ---
@@ -5064,14 +5204,15 @@ Building on §9.4.1, this section defines the precise degraded state semantics a
 
 The `/health` endpoint returns HTTP 503 with `"status": "degraded"` when ANY of the following are true:
 
-| Condition | `reason` value | `db` value |
-|-----------|---------------|------------|
-| SQLite `SELECT 1` fails or times out (> 1s) | `"db_unavailable"` | `"error"` |
-| `migrations_pending > 0` at startup | `"migrations_pending"` | `"ok"` |
-| Session registry is inconsistent (in-memory sessions with no DB row) | `"session_registry_corrupt"` | `"ok"` |
-| Crash recovery is in progress (step 4 of §9.5 startup sequence) | `"crash_recovery_in_progress"` | `"ok"` |
+| Condition                                                            | `reason` value                 | `db` value |
+| -------------------------------------------------------------------- | ------------------------------ | ---------- |
+| SQLite `SELECT 1` fails or times out (> 1s)                          | `"db_unavailable"`             | `"error"`  |
+| `migrations_pending > 0` at startup                                  | `"migrations_pending"`         | `"ok"`     |
+| Session registry is inconsistent (in-memory sessions with no DB row) | `"session_registry_corrupt"`   | `"ok"`     |
+| Crash recovery is in progress (step 4 of §9.5 startup sequence)      | `"crash_recovery_in_progress"` | `"ok"`     |
 
 The proxy does NOT return degraded for:
+
 - Upstream MCP servers being unavailable (this is not a proxy health issue)
 - High tool counts (logged as warning, not a health failure)
 - Config reload in progress (reload is async; health is not affected)
@@ -5104,11 +5245,11 @@ The `checks` object allows monitoring systems to distinguish which specific chec
 
 A third status value `"partial"` is returned (HTTP 200) when the proxy is operational but has reduced capability:
 
-| Condition | `partial_reason` |
-|-----------|-----------------|
-| `migrations_pending > 0` AND startup is complete (should not occur normally) | `"schema_drift"` |
-| Crash recovery completed but some sessions could not be recovered | `"partial_recovery"` |
-| WAL file size exceeds 100 MB (performance risk) | `"wal_size_warning"` |
+| Condition                                                                    | `partial_reason`     |
+| ---------------------------------------------------------------------------- | -------------------- |
+| `migrations_pending > 0` AND startup is complete (should not occur normally) | `"schema_drift"`     |
+| Crash recovery completed but some sessions could not be recovered            | `"partial_recovery"` |
+| WAL file size exceeds 100 MB (performance risk)                              | `"wal_size_warning"` |
 
 The `"partial"` status returns HTTP 200 so liveness/readiness probes do not fail — the process is operational. It is informational for monitoring integrations.
 
@@ -5133,15 +5274,15 @@ The following endpoints are available under `/api/debug` and are intended for op
 
 Set `MCP_AGGREGATOR_DEBUG_ENDPOINTS=false` to disable all `/api/debug` endpoints (default: `true` in development, `false` in production). The recommended production posture is to disable debug endpoints and access diagnostic information via the `/api/status` endpoint and structured logs.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/debug/sessions` | Full in-memory session registry dump: session ID, state, agent ID, upstream handles with status, in-flight call count, subprocess PID (stdio), and memory estimate. Not sourced from the DB — reflects live in-memory state. |
-| `GET` | `/api/debug/subprocesses` | All tracked stdio subprocess PIDs, their associated session IDs, aliases, and process uptime. Useful for diagnosing subprocess count runaway (Runbook 4). |
-| `GET` | `/api/debug/event-bus` | Recent event bus events (last 100): event type, payload summary, subscriber count, processing duration. Useful for diagnosing stuck reload cycles (Runbook 5). |
-| `POST` | `/api/debug/wal-checkpoint` | Trigger a manual `PRAGMA wal_checkpoint(PASSIVE)`. Returns `{ log, checkpointed, busy }` page counts. Use during Runbook 3 to reduce WAL file size. |
-| `GET` | `/api/debug/config` | Current in-memory `ResolvedConfig` snapshot (the last successfully parsed YAML config). Does NOT include resolved env var values — only key names. Useful for verifying that a YAML reload was applied. |
-| `GET` | `/api/debug/heap` | Node.js heap statistics (`process.memoryUsage()`). Useful for diagnosing memory leaks in long-running deployments. |
-| `DELETE` | `/api/debug/sessions` | Force-close ALL active sessions. Body: `{ "reason": "operator_emergency" }`. Sends SIGTERM to all stdio subprocesses, then SIGKILL after 3s. Use as a last resort during Runbook 4 (subprocess runaway). Returns count of sessions closed. |
+| Method   | Path                        | Description                                                                                                                                                                                                                                |
+| -------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET`    | `/api/debug/sessions`       | Full in-memory session registry dump: session ID, state, agent ID, upstream handles with status, in-flight call count, subprocess PID (stdio), and memory estimate. Not sourced from the DB — reflects live in-memory state.               |
+| `GET`    | `/api/debug/subprocesses`   | All tracked stdio subprocess PIDs, their associated session IDs, aliases, and process uptime. Useful for diagnosing subprocess count runaway (Runbook 4).                                                                                  |
+| `GET`    | `/api/debug/event-bus`      | Recent event bus events (last 100): event type, payload summary, subscriber count, processing duration. Useful for diagnosing stuck reload cycles (Runbook 5).                                                                             |
+| `POST`   | `/api/debug/wal-checkpoint` | Trigger a manual `PRAGMA wal_checkpoint(PASSIVE)`. Returns `{ log, checkpointed, busy }` page counts. Use during Runbook 3 to reduce WAL file size.                                                                                        |
+| `GET`    | `/api/debug/config`         | Current in-memory `ResolvedConfig` snapshot (the last successfully parsed YAML config). Does NOT include resolved env var values — only key names. Useful for verifying that a YAML reload was applied.                                    |
+| `GET`    | `/api/debug/heap`           | Node.js heap statistics (`process.memoryUsage()`). Useful for diagnosing memory leaks in long-running deployments.                                                                                                                         |
+| `DELETE` | `/api/debug/sessions`       | Force-close ALL active sessions. Body: `{ "reason": "operator_emergency" }`. Sends SIGTERM to all stdio subprocesses, then SIGKILL after 3s. Use as a last resort during Runbook 4 (subprocess runaway). Returns count of sessions closed. |
 
 **Response example for `GET /api/debug/sessions`:**
 
@@ -5155,8 +5296,19 @@ Set `MCP_AGGREGATOR_DEBUG_ENDPOINTS=false` to disable all `/api/debug` endpoints
       "agent_id": "garry",
       "connected_at": "2026-03-10T12:00:00Z",
       "upstreams": [
-        { "alias": "github", "status": "connected", "in_flight_calls": 1, "transport": "stdio", "pid": 1234 },
-        { "alias": "browser", "status": "connected", "in_flight_calls": 0, "transport": "streamablehttp" }
+        {
+          "alias": "github",
+          "status": "connected",
+          "in_flight_calls": 1,
+          "transport": "stdio",
+          "pid": 1234
+        },
+        {
+          "alias": "browser",
+          "status": "connected",
+          "in_flight_calls": 0,
+          "transport": "streamablehttp"
+        }
       ],
       "total_in_flight": 1,
       "memory_estimate_bytes": 2097152
@@ -5189,6 +5341,7 @@ The current dashboard specification in §10 focuses on agent connectivity and to
 **Session timing panel (on the Sessions page `/sessions`):**
 
 Add columns:
+
 - **Session start duration:** How long the session took to reach ACTIVE state. Color-coded: green < 2s, yellow 2–10s, red > 10s.
 - **Upstream success rate:** `(connected upstreams / total expected upstreams) × 100%` at session start. A session that started with 3/5 upstreams connected shows "60%".
 - **Tool call count:** Total tool calls made in the session lifetime.
@@ -5197,6 +5350,7 @@ Add columns:
 **Upstream health trend (on the Servers page `/servers`):**
 
 Add a mini sparkline or trend indicator per server showing:
+
 - Connect success rate over the last 24 hours (hourly buckets)
 - Average connect duration over the last 24 hours
 
@@ -5250,13 +5404,13 @@ Recommended log agent configuration:
 
 **Retention targets:**
 
-| Log type | Retention | Storage | Rationale |
-|----------|-----------|---------|-----------|
-| `error` / `fatal` level | 90 days | Hot storage (indexed) | Required for incident post-mortems |
-| `warn` level | 30 days | Hot storage (indexed) | Upstream errors, rate limits, YAML problems |
-| `info` level | 14 days | Warm storage (indexed, slower) | Session lifecycle, config reloads |
-| `debug` / `trace` level | 3 days | Cold storage (not indexed) | High volume; only needed for active debugging |
-| Audit log (in SQLite `audit_log` table) | 90 days | SQLite (pruned by §5.4.8 background job) | Compliance and change tracking |
+| Log type                                | Retention | Storage                                  | Rationale                                     |
+| --------------------------------------- | --------- | ---------------------------------------- | --------------------------------------------- |
+| `error` / `fatal` level                 | 90 days   | Hot storage (indexed)                    | Required for incident post-mortems            |
+| `warn` level                            | 30 days   | Hot storage (indexed)                    | Upstream errors, rate limits, YAML problems   |
+| `info` level                            | 14 days   | Warm storage (indexed, slower)           | Session lifecycle, config reloads             |
+| `debug` / `trace` level                 | 3 days    | Cold storage (not indexed)               | High volume; only needed for active debugging |
+| Audit log (in SQLite `audit_log` table) | 90 days   | SQLite (pruned by §5.4.8 background job) | Compliance and change tracking                |
 
 #### SQLite Audit Log Retention
 
@@ -5274,17 +5428,17 @@ The WAL file (`db.sqlite-wal`) is not a log file in the application sense, but i
 
 The following checklist captures the observability work items that span multiple milestones. These MUST be tracked as milestone deliverables, not left as "nice to haves".
 
-| Item | Milestone | Priority |
-|------|-----------|----------|
-| Structured JSON logging with mandatory correlation fields (§17.2) | 6 | Must |
-| `GET /metrics` Prometheus endpoint with session, upstream, DB metrics (§17.1) | 7 | Must |
-| Span logging for session start and tool call paths (§17.3) | 7 | Should |
-| `/health` partial/degraded state with `checks` object (§17.7) | 3 | Must |
-| `GET /api/debug/sessions` and `GET /api/debug/subprocesses` (§17.8) | 3 | Should |
-| `POST /api/debug/wal-checkpoint` (§17.8) | 5 | Should |
-| Alert rules deployed alongside the service (§17.5) | 7 | Must |
-| Dashboard additions: system health panel, session timing columns (§17.9) | 5 | Should |
-| Log sampling middleware (§17.2) | 6 | Should |
-| Audit log pruning background job (§5.4.8) | 3 | Must |
-| `reload_id` field on config reload log events (§17.2) | 3 | Must |
-| `call_id` field on tool call log events (§17.2) | 3 | Should |
+| Item                                                                          | Milestone | Priority |
+| ----------------------------------------------------------------------------- | --------- | -------- |
+| Structured JSON logging with mandatory correlation fields (§17.2)             | 6         | Must     |
+| `GET /metrics` Prometheus endpoint with session, upstream, DB metrics (§17.1) | 7         | Must     |
+| Span logging for session start and tool call paths (§17.3)                    | 7         | Should   |
+| `/health` partial/degraded state with `checks` object (§17.7)                 | 3         | Must     |
+| `GET /api/debug/sessions` and `GET /api/debug/subprocesses` (§17.8)           | 3         | Should   |
+| `POST /api/debug/wal-checkpoint` (§17.8)                                      | 5         | Should   |
+| Alert rules deployed alongside the service (§17.5)                            | 7         | Must     |
+| Dashboard additions: system health panel, session timing columns (§17.9)      | 5         | Should   |
+| Log sampling middleware (§17.2)                                               | 6         | Should   |
+| Audit log pruning background job (§5.4.8)                                     | 3         | Must     |
+| `reload_id` field on config reload log events (§17.2)                         | 3         | Must     |
+| `call_id` field on tool call log events (§17.2)                               | 3         | Should   |
