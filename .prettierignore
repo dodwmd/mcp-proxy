@@ -4,3 +4,4 @@ coverage
 .changeset/*.md
 !.changeset/README.md
 pnpm-lock.yaml
+drizzle

@@ -1,12 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { version, getVersion } from './index';
+import { version } from './index.js';
 
 describe('M0 Smoke Test', () => {
-  it('should export version constant', () => {
+  it('exports version', () => {
     expect(version).toBe('0.0.0');
-  });
-
-  it('should return version from getVersion()', () => {
-    expect(getVersion()).toBe('0.0.0');
   });
 });
