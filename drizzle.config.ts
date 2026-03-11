@@ -1,10 +1,10 @@
-import type { Config } from 'drizzle-kit';
+import { defineConfig } from 'drizzle-kit';
 
-export default {
+export default defineConfig({
+  dialect: 'sqlite',
   schema: './src/db/schema.ts',
   out: './drizzle',
-  dialect: 'sqlite',
   dbCredentials: {
-    url: process.env.DATABASE_URL || `${process.env.HOME}/.mcp-aggregator/db.sqlite`,
+    url: process.env.DATABASE_URL || './.tmp/dev.sqlite',
   },
-} satisfies Config;
+});

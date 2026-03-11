@@ -1,31 +1,47 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Build output
 dist/
+build/
+*.tsbuildinfo
 
 # Environment
 .env
 .env.local
+.env.*.local
 mcp.yaml
 
 # Database
 *.sqlite
-*.sqlite-*
+*.sqlite-shm
+*.sqlite-wal
+.tmp/
 
-# IDE
+# Testing
+coverage/
+.vitest/
+
+# IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# Testing
-coverage/
+*~
 
 # OS
 .DS_Store
 Thumbs.db
 
 # Logs
-*.log
 logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Changesets
+.changeset/*.md
+!.changeset/README.md
