@@ -6,6 +6,10 @@ export default [
   {
     files: ['**/*.ts'],
     ...eslint.configs.recommended,
+    rules: {
+      ...eslint.configs.recommended.rules,
+      'no-undef': 'off', // TypeScript handles this
+    },
   },
   {
     files: ['src/**/*.ts'],
