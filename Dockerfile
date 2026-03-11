@@ -41,8 +41,8 @@ COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
 # Switch to non-root user
 USER nodejs
 
-# Expose port (for future REST API in M3)
-EXPOSE 3000
+# Expose port (for future REST API in M1+)
+EXPOSE 4000
 
 # Volume for data persistence
 VOLUME ["/data"]

@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - '3000:3000'
+      - '4000:4000'
     volumes:
       - ./mcp.yaml:/app/mcp.yaml:ro
       - mcp-data:/data

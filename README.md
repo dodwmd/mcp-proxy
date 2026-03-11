@@ -48,7 +48,7 @@ docker compose up
 
 # Or build manually
 docker build -t mcp-aggregator .
-docker run -p 3000:3000 -v $(pwd)/mcp.yaml:/app/mcp.yaml:ro mcp-aggregator
+docker run -p 4000:4000 -v $(pwd)/mcp.yaml:/app/mcp.yaml:ro mcp-aggregator
 ```
 
 ## Development

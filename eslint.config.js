@@ -3,7 +3,10 @@ import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
 
 export default [
-  eslint.configs.recommended,
+  {
+    files: ['**/*.ts'],
+    ...eslint.configs.recommended,
+  },
   {
     files: ['src/**/*.ts'],
     languageOptions: {
@@ -31,6 +34,11 @@ export default [
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: 'module',
+      },
+      globals: {
+        process: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
       },
     },
     plugins: {
