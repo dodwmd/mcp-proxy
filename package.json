@@ -11,7 +11,7 @@
     "dev": "tsx watch bin/mcp-aggregator.ts -- start",
     "build": "pnpm build:server && pnpm build:cli",
     "build:server": "tsc --project tsconfig.build.json",
-    "build:cli": "esbuild bin/mcp-aggregator.ts --bundle --platform=node --outfile=dist/bin/mcp-aggregator.js --external:@modelcontextprotocol/sdk --external:drizzle-orm --external:better-sqlite3",
+    "build:cli": "esbuild bin/mcp-aggregator.ts --bundle --platform=node --format=esm --outfile=dist/bin/mcp-aggregator.js --external:@modelcontextprotocol/sdk --external:drizzle-orm --external:better-sqlite3 --external:commander --external:yaml --external:chokidar",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest",
