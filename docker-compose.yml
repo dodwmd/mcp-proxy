@@ -1,0 +1,16 @@
+services:
+  mcp-aggregator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '4000:4000'
+    volumes:
+      - ./mcp.yaml:/app/mcp.yaml:ro
+      - mcp-data:/data
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+
+volumes:
+  mcp-data:
