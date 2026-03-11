@@ -42,7 +42,12 @@ export class StdioUpstream implements IUpstreamHandle {
     // Spawn child process
     const command = this.config.command!;
     const args = this.config.args || [];
-    const env = { ...process.env, ...this.config.env };
+    // Filter out undefined values from env to satisfy Record<string, string> type
+    const env = Object.fromEntries(
+      Object.entries({ ...process.env, ...this.config.env }).filter(
+        ([, v]) => v !== undefined
+      )
+    ) as Record<string, string>;
 
     this.process = spawn(command, args, {
       env,
@@ -75,11 +80,7 @@ export class StdioUpstream implements IUpstreamHandle {
         version: clientInfo.version,
       },
       {
-        capabilities: {
-          tools: {},
-          resources: {},
-          prompts: {},
-        },
+        capabilities: {},
       }
     );
 
@@ -101,7 +102,7 @@ export class StdioUpstream implements IUpstreamHandle {
 
     // Try a simple MCP ping request
     try {
-      await this.client?.request({ method: 'ping' }, { timeout: 5000 });
+      await this.client?.ping();
       return true;
     } catch {
       return false;
@@ -155,13 +156,9 @@ export class StdioUpstream implements IUpstreamHandle {
       throw new Error(`Upstream ${this.alias} not initialized`);
     }
 
-    const response = await this.client.request(
-      { method: 'tools/list' },
-      { timeout: this.config.timeoutMs }
-    );
-
-    const tools = (response as { tools?: unknown[] }).tools || [];
-    return tools.map((t: any) => ({
+    const response = await this.client.listTools();
+    const tools = response.tools || [];
+    return tools.map((t) => ({
       name: t.name,
       description: t.description,
       inputSchema: t.inputSchema || {},
@@ -173,13 +170,9 @@ export class StdioUpstream implements IUpstreamHandle {
       throw new Error(`Upstream ${this.alias} not initialized`);
     }
 
-    const response = await this.client.request(
-      { method: 'resources/list' },
-      { timeout: this.config.timeoutMs }
-    );
-
-    const resources = (response as { resources?: unknown[] }).resources || [];
-    return resources.map((r: any) => ({
+    const response = await this.client.listResources();
+    const resources = response.resources || [];
+    return resources.map((r) => ({
       uri: r.uri,
       name: r.name,
       description: r.description,
@@ -192,13 +185,9 @@ export class StdioUpstream implements IUpstreamHandle {
       throw new Error(`Upstream ${this.alias} not initialized`);
     }
 
-    const response = await this.client.request(
-      { method: 'prompts/list' },
-      { timeout: this.config.timeoutMs }
-    );
-
-    const prompts = (response as { prompts?: unknown[] }).prompts || [];
-    return prompts.map((p: any) => ({
+    const response = await this.client.listPrompts();
+    const prompts = response.prompts || [];
+    return prompts.map((p) => ({
       name: p.name,
       description: p.description,
       arguments: p.arguments,
@@ -210,14 +199,7 @@ export class StdioUpstream implements IUpstreamHandle {
       throw new Error(`Upstream ${this.alias} not initialized`);
     }
 
-    const response = await this.client.request(
-      {
-        method: 'tools/call',
-        params: { name, arguments: args },
-      },
-      { timeout: this.config.timeoutMs }
-    );
-
+    const response = await this.client.callTool({ name, arguments: args });
     return response;
   }
 }

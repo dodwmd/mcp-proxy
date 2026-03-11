@@ -2,7 +2,7 @@
 
 import { Command } from 'commander';
 import { YamlConfigLoader } from '../src/config/loader.js';
-import { createDb } from '../src/db/client.js';
+import { createDbClient } from '../src/db/client.js';
 import { SqliteConfigStore } from '../src/db/config-store.js';
 import { AggregatorEngine } from '../src/aggregator/engine.js';
 import { runMigrations } from '../src/db/migrate.js';
@@ -38,7 +38,7 @@ program
 
       // Initialize database
       const dbPath = path.join(homePath, 'mcp-aggregator.db');
-      const db = createDb(dbPath);
+      const { db } = createDbClient(dbPath);
 
       // Run migrations
       console.log('Running database migrations...');
