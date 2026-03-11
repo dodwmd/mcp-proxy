@@ -6,6 +6,12 @@ import { createDbClient } from '../src/db/client.js';
 import { SqliteConfigStore } from '../src/db/config-store.js';
 import { AggregatorEngine } from '../src/aggregator/engine.js';
 import { runMigrations } from '../src/db/migrate.js';
+import {
+  createMcpServer,
+  createStreamableHttpTransport,
+  createHttpServer,
+  startHttpServer,
+} from '../src/server/index.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
@@ -60,22 +66,58 @@ program
       // Initialize aggregator engine
       const engine = new AggregatorEngine();
 
+      // Get resolved server configs from the config store
+      // For M1, we use all servers from the config
+      const serverConfigs = config.servers.map(s => ({
+        id: s.alias,
+        name: s.name,
+        alias: s.alias,
+        transportType: s.transport.type,
+        command: s.transport.type === 'stdio' ? s.transport.command : undefined,
+        args: s.transport.type === 'stdio' ? s.transport.args : undefined,
+        url: s.transport.type !== 'stdio' ? s.transport.url : undefined,
+        enabled: true,
+        timeoutMs: s.transport.timeoutMs ?? 30000,
+        env: s.env ?? {},
+        headers: s.headers ?? {},
+      }));
+
+      // Create MCP server
+      const mcpServer = createMcpServer({
+        engine,
+        serverConfigs,
+        serverInfo: {
+          name: 'mcp-aggregator',
+          version: '0.1.0',
+        },
+      });
+
+      // Create StreamableHTTP transport
+      const transport = createStreamableHttpTransport();
+
+      // Create HTTP server
+      const app = createHttpServer({
+        port,
+        bind: options.bind,
+        mcpServer,
+        transport,
+      });
+
+      // Start HTTP server
+      const httpServer = await startHttpServer(app, port, options.bind);
+
       console.log('MCP Aggregator started successfully');
-      console.log(`Listening on http://${options.bind}:${port}/mcp`);
 
-      // TODO: Start HTTP server with MCP handler
-      // For now, just keep process alive
-      process.on('SIGTERM', async () => {
-        console.log('SIGTERM received, shutting down gracefully...');
-        // TODO: Close engine, close HTTP server
+      // Graceful shutdown handlers
+      const shutdown = async () => {
+        console.log('Shutting down gracefully...');
+        await httpServer.close();
+        // Note: Engine doesn't have a close method yet, but sessions will be cleaned up
         process.exit(0);
-      });
+      };
 
-      process.on('SIGINT', async () => {
-        console.log('SIGINT received, shutting down gracefully...');
-        // TODO: Close engine, close HTTP server
-        process.exit(0);
-      });
+      process.on('SIGTERM', shutdown);
+      process.on('SIGINT', shutdown);
 
       // Keep process alive
       await new Promise(() => {});
