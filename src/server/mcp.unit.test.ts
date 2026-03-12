@@ -44,7 +44,6 @@ describe('MCP Server Unit Tests', () => {
       const cleanupSpy = vi.spyOn(mockEngine, 'closeSession');
 
       // Simulate initialization to create a session
-      const InitializeRequestSchema = (await import('@modelcontextprotocol/sdk/types.js')).InitializeRequestSchema;
       const request = {
         method: 'initialize',
         params: {
@@ -57,11 +56,12 @@ describe('MCP Server Unit Tests', () => {
       // Access private handler via server
       const handlers = (server as any)._requestHandlers;
       const initHandler = handlers.get('initialize');
+      if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
 
       // Trigger error handler with critical error
       const criticalError = new Error('protocol_violation: invalid request');
-      server.onerror(criticalError);
+      if (server.onerror) server.onerror(criticalError);
 
       // Wait for async cleanup to start
       await new Promise((resolve) => setTimeout(resolve, 10));
@@ -74,7 +74,6 @@ describe('MCP Server Unit Tests', () => {
       const cleanupSpy = vi.spyOn(mockEngine, 'closeSession');
 
       // Initialize session
-      const InitializeRequestSchema = (await import('@modelcontextprotocol/sdk/types.js')).InitializeRequestSchema;
       const request = {
         method: 'initialize',
         params: {
@@ -86,11 +85,12 @@ describe('MCP Server Unit Tests', () => {
 
       const handlers = (server as any)._requestHandlers;
       const initHandler = handlers.get('initialize');
+      if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
 
       // Test case insensitive matching
       const criticalError = new Error('Transport Failed: connection lost');
-      server.onerror(criticalError);
+      if (server.onerror) server.onerror(criticalError);
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -102,7 +102,6 @@ describe('MCP Server Unit Tests', () => {
       const cleanupSpy = vi.spyOn(mockEngine, 'closeSession');
 
       // Initialize session
-      const InitializeRequestSchema = (await import('@modelcontextprotocol/sdk/types.js')).InitializeRequestSchema;
       const request = {
         method: 'initialize',
         params: {
@@ -114,10 +113,11 @@ describe('MCP Server Unit Tests', () => {
 
       const handlers = (server as any)._requestHandlers;
       const initHandler = handlers.get('initialize');
+      if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
 
       const criticalError = new Error('connection lost');
-      server.onerror(criticalError);
+      if (server.onerror) server.onerror(criticalError);
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -129,7 +129,6 @@ describe('MCP Server Unit Tests', () => {
       const cleanupSpy = vi.spyOn(mockEngine, 'closeSession');
 
       // Initialize session
-      const InitializeRequestSchema = (await import('@modelcontextprotocol/sdk/types.js')).InitializeRequestSchema;
       const request = {
         method: 'initialize',
         params: {
@@ -141,10 +140,11 @@ describe('MCP Server Unit Tests', () => {
 
       const handlers = (server as any)._requestHandlers;
       const initHandler = handlers.get('initialize');
+      if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
 
       const criticalError = new Error('malformed request received');
-      server.onerror(criticalError);
+      if (server.onerror) server.onerror(criticalError);
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -156,7 +156,6 @@ describe('MCP Server Unit Tests', () => {
       const cleanupSpy = vi.spyOn(mockEngine, 'closeSession');
 
       // Initialize session
-      const InitializeRequestSchema = (await import('@modelcontextprotocol/sdk/types.js')).InitializeRequestSchema;
       const request = {
         method: 'initialize',
         params: {
@@ -168,11 +167,12 @@ describe('MCP Server Unit Tests', () => {
 
       const handlers = (server as any)._requestHandlers;
       const initHandler = handlers.get('initialize');
+      if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
 
       // Trigger non-critical error
       const nonCriticalError = new Error('normal error: something went wrong');
-      server.onerror(nonCriticalError);
+      if (server.onerror) server.onerror(nonCriticalError);
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -184,7 +184,6 @@ describe('MCP Server Unit Tests', () => {
       const cleanupSpy = vi.spyOn(mockEngine, 'closeSession');
 
       // Initialize session
-      const InitializeRequestSchema = (await import('@modelcontextprotocol/sdk/types.js')).InitializeRequestSchema;
       const request = {
         method: 'initialize',
         params: {
@@ -196,10 +195,11 @@ describe('MCP Server Unit Tests', () => {
 
       const handlers = (server as any)._requestHandlers;
       const initHandler = handlers.get('initialize');
+      if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
 
-      // Trigger with non-Error object
-      server.onerror('string error');
+      // Trigger with non-Error object (wrap string as Error)
+      if (server.onerror) server.onerror(new Error('string error'));
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -213,7 +213,6 @@ describe('MCP Server Unit Tests', () => {
       const cleanupSpy = vi.spyOn(mockEngine, 'closeSession');
 
       // Initialize session
-      const InitializeRequestSchema = (await import('@modelcontextprotocol/sdk/types.js')).InitializeRequestSchema;
       const request = {
         method: 'initialize',
         params: {
@@ -225,10 +224,11 @@ describe('MCP Server Unit Tests', () => {
 
       const handlers = (server as any)._requestHandlers;
       const initHandler = handlers.get('initialize');
+      if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
 
       const criticalError = new Error('protocol_violation: test');
-      server.onerror(criticalError);
+      if (server.onerror) server.onerror(criticalError);
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -242,7 +242,6 @@ describe('MCP Server Unit Tests', () => {
       const cleanupSpy = vi.spyOn(mockEngine, 'closeSession');
 
       // Initialize session
-      const InitializeRequestSchema = (await import('@modelcontextprotocol/sdk/types.js')).InitializeRequestSchema;
       const request = {
         method: 'initialize',
         params: {
@@ -254,10 +253,11 @@ describe('MCP Server Unit Tests', () => {
 
       const handlers = (server as any)._requestHandlers;
       const initHandler = handlers.get('initialize');
+      if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
 
       const nonCriticalError = new Error('normal error');
-      server.onerror(nonCriticalError);
+      if (server.onerror) server.onerror(nonCriticalError);
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -273,7 +273,6 @@ describe('MCP Server Unit Tests', () => {
       const server = createMcpServer({ engine: failingEngine, serverConfigs });
 
       // Initialize session
-      const InitializeRequestSchema = (await import('@modelcontextprotocol/sdk/types.js')).InitializeRequestSchema;
       const request = {
         method: 'initialize',
         params: {
@@ -285,11 +284,12 @@ describe('MCP Server Unit Tests', () => {
 
       const handlers = (server as any)._requestHandlers;
       const initHandler = handlers.get('initialize');
+      if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
 
       // Should not throw when cleanup fails
       const criticalError = new Error('protocol_violation: test');
-      expect(() => server.onerror(criticalError)).not.toThrow();
+      expect(() => { if (server.onerror) server.onerror(criticalError); }).not.toThrow();
 
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
@@ -301,15 +301,17 @@ describe('MCP Server Unit Tests', () => {
       const closeSpy = vi.spyOn(mockEngine, 'closeSession');
 
       // Initialize multiple sessions
-      const InitializeRequestSchema = (await import('@modelcontextprotocol/sdk/types.js')).InitializeRequestSchema;
       const createSessionSpy = vi.spyOn(mockEngine, 'createSession');
 
       let sessionCounter = 0;
       createSessionSpy.mockImplementation(async () => ({
         id: `session-${++sessionCounter}`,
-        state: 'active',
+        state: 'active' as const,
+        connectedAt: new Date(),
         upstreamHandles: new Map(),
         upstreamStatuses: new Map(),
+        toolCount: 0,
+        inFlightCalls: 0,
       }));
 
       const request = {
@@ -328,7 +330,7 @@ describe('MCP Server Unit Tests', () => {
       await initHandler(request);
 
       // Trigger onclose
-      server.onclose();
+      if (server.onclose) server.onclose();
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -339,7 +341,7 @@ describe('MCP Server Unit Tests', () => {
       let callCount = 0;
       const partiallyFailingEngine = {
         ...mockEngine,
-        closeSession: vi.fn().mockImplementation(async (sessionId: string) => {
+        closeSession: vi.fn().mockImplementation(async (_sessionId: string) => {
           if (++callCount === 1) {
             throw new Error('close failed');
           }
@@ -349,7 +351,6 @@ describe('MCP Server Unit Tests', () => {
       const server = createMcpServer({ engine: partiallyFailingEngine, serverConfigs });
 
       // Initialize session
-      const InitializeRequestSchema = (await import('@modelcontextprotocol/sdk/types.js')).InitializeRequestSchema;
       const request = {
         method: 'initialize',
         params: {
@@ -361,10 +362,11 @@ describe('MCP Server Unit Tests', () => {
 
       const handlers = (server as any)._requestHandlers;
       const initHandler = handlers.get('initialize');
+      if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
 
       // Trigger onclose
-      server.onclose();
+      if (server.onclose) server.onclose();
 
       await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -383,7 +385,6 @@ describe('MCP Server Unit Tests', () => {
       const server = createMcpServer({ engine: fullyFailingEngine, serverConfigs });
 
       // Initialize session
-      const InitializeRequestSchema = (await import('@modelcontextprotocol/sdk/types.js')).InitializeRequestSchema;
       const request = {
         method: 'initialize',
         params: {
@@ -395,10 +396,11 @@ describe('MCP Server Unit Tests', () => {
 
       const handlers = (server as any)._requestHandlers;
       const initHandler = handlers.get('initialize');
+      if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
 
       // Trigger onclose and wait for completion
-      server.onclose();
+      if (server.onclose) server.onclose();
 
       await new Promise((resolve) => setTimeout(resolve, 50));
 
@@ -428,7 +430,6 @@ describe('MCP Server Unit Tests', () => {
       const server = createMcpServer({ engine: multiSessionEngine, serverConfigs });
 
       // Initialize session (only one in M1, but testing the aggregation logic)
-      const InitializeRequestSchema = (await import('@modelcontextprotocol/sdk/types.js')).InitializeRequestSchema;
       const request = {
         method: 'initialize',
         params: {
@@ -445,7 +446,7 @@ describe('MCP Server Unit Tests', () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       // Trigger onclose
-      server.onclose();
+      if (server.onclose) server.onclose();
 
       await new Promise((resolve) => setTimeout(resolve, 50));
 

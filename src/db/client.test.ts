@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -35,7 +35,7 @@ describe('createDbClient', () => {
     it('should create directory when it does not exist', async () => {
       expect(existsSync(testDir)).toBe(false);
 
-      const { db, sqlite } = await createDbClient(testDbPath);
+      const { db: _db, sqlite } = await createDbClient(testDbPath);
 
       expect(existsSync(testDir)).toBe(true);
       expect(existsSync(testDbPath)).toBe(true);
@@ -48,7 +48,7 @@ describe('createDbClient', () => {
       await mkdir(testDir, { recursive: true });
       expect(existsSync(testDir)).toBe(true);
 
-      const { db, sqlite } = await createDbClient(testDbPath);
+      const { db: _db, sqlite } = await createDbClient(testDbPath);
 
       expect(existsSync(testDbPath)).toBe(true);
 
@@ -60,7 +60,7 @@ describe('createDbClient', () => {
 
       expect(existsSync(join(testDir, 'nested'))).toBe(false);
 
-      const { db, sqlite } = await createDbClient(nestedPath);
+      const { db: _db, sqlite } = await createDbClient(nestedPath);
 
       expect(existsSync(join(testDir, 'nested', 'deep', 'path'))).toBe(true);
       expect(existsSync(nestedPath)).toBe(true);
@@ -75,7 +75,7 @@ describe('createDbClient', () => {
 
   describe('database initialization', () => {
     it('should create database with correct pragmas', async () => {
-      const { db, sqlite } = await createDbClient(testDbPath);
+      const { db: _db, sqlite } = await createDbClient(testDbPath);
 
       // Verify pragmas were set correctly
       const journalMode = sqlite.pragma('journal_mode', { simple: true }) as string;
@@ -92,9 +92,9 @@ describe('createDbClient', () => {
     });
 
     it('should return both db and sqlite instances', async () => {
-      const { db, sqlite } = await createDbClient(testDbPath);
+      const { db: _db, sqlite } = await createDbClient(testDbPath);
 
-      expect(db).toBeDefined();
+      expect(_db).toBeDefined();
       expect(sqlite).toBeDefined();
       expect(typeof sqlite.prepare).toBe('function');
       expect(typeof sqlite.close).toBe('function');
@@ -105,7 +105,7 @@ describe('createDbClient', () => {
     it('should create database file at specified path', async () => {
       expect(existsSync(testDbPath)).toBe(false);
 
-      const { db, sqlite } = await createDbClient(testDbPath);
+      const { db: _db, sqlite } = await createDbClient(testDbPath);
 
       expect(existsSync(testDbPath)).toBe(true);
 
