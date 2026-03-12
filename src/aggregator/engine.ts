@@ -1,4 +1,4 @@
-import { UpstreamConnectionManager } from '../upstream/manager.js';
+import { UpstreamConnectionManager, type UpstreamRuntimeConfig } from '../upstream/manager.js';
 import type { IUpstreamHandle } from '../upstream/types.js';
 import type { ToolDescriptor, ResourceDescriptor, PromptDescriptor } from '../types/common.js';
 import {
@@ -19,8 +19,8 @@ export class AggregatorEngine implements IAggregatorEngine {
   private readonly sessions = new Map<string, InternalSessionContext>();
   private readonly upstreamManager: UpstreamConnectionManager;
 
-  constructor() {
-    this.upstreamManager = new UpstreamConnectionManager();
+  constructor(runtimeConfig?: UpstreamRuntimeConfig) {
+    this.upstreamManager = new UpstreamConnectionManager(runtimeConfig);
   }
 
   async createSession(params: CreateSessionParams): Promise<SessionContext> {
