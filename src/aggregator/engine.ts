@@ -315,7 +315,7 @@ export class AggregatorEngine implements IAggregatorEngine {
       throw new Error(`Invalid namespaced resource URI format: ${namespacedUri}`);
     }
 
-    const { alias } = parsed;
+    const { alias, uri } = parsed;
 
     // Find upstream handle
     const handle = session.upstreamHandles.get(alias);
@@ -323,9 +323,13 @@ export class AggregatorEngine implements IAggregatorEngine {
       throw new Error(`Upstream not found or not connected: ${alias}`);
     }
 
-    // Forward to upstream (note: IUpstreamHandle doesn't have readResource yet)
-    // This would need to be added to IUpstreamHandle interface
-    throw new Error('Resource reading not yet implemented');
+    // Increment in-flight call counter
+    session.inFlightCalls++;
+    try {
+      return await handle.readResource(uri);
+    } finally {
+      session.inFlightCalls--;
+    }
   }
 
   async getPrompt(
@@ -348,7 +352,7 @@ export class AggregatorEngine implements IAggregatorEngine {
       throw new Error(`Invalid namespaced prompt name format: ${namespacedName}`);
     }
 
-    const { alias } = parsed;
+    const { alias, name } = parsed;
 
     // Find upstream handle
     const handle = session.upstreamHandles.get(alias);
@@ -356,9 +360,13 @@ export class AggregatorEngine implements IAggregatorEngine {
       throw new Error(`Upstream not found or not connected: ${alias}`);
     }
 
-    // Forward to upstream (note: IUpstreamHandle doesn't have getPrompt yet)
-    // This would need to be added to IUpstreamHandle interface
-    throw new Error('Prompt retrieval not yet implemented');
+    // Increment in-flight call counter
+    session.inFlightCalls++;
+    try {
+      return await handle.getPrompt(name, _args);
+    } finally {
+      session.inFlightCalls--;
+    }
   }
 
   private toPublicContext(session: InternalSessionContext): SessionContext {

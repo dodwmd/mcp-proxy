@@ -166,4 +166,22 @@ export class StdioUpstream implements IUpstreamHandle {
     const response = await this.client.callTool({ name, arguments: args });
     return response;
   }
+
+  async readResource(uri: string): Promise<unknown> {
+    if (!this.initialized || !this.client) {
+      throw new Error(`Upstream ${this.alias} not initialized`);
+    }
+
+    const response = await this.client.readResource({ uri });
+    return response;
+  }
+
+  async getPrompt(name: string, args?: Record<string, unknown>): Promise<unknown> {
+    if (!this.initialized || !this.client) {
+      throw new Error(`Upstream ${this.alias} not initialized`);
+    }
+
+    const response = await this.client.getPrompt({ name, arguments: args });
+    return response;
+  }
 }
