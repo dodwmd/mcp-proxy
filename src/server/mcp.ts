@@ -20,6 +20,26 @@ export interface McpHandlerOptions {
 }
 
 /**
+ * Determines if an MCP error is critical and requires session cleanup.
+ * Critical errors include protocol violations and transport failures that
+ * indicate the server state is unrecoverable.
+ */
+function isCriticalMcpError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes('protocol_violation') ||
+      message.includes('protocol violation') ||
+      message.includes('transport_failed') ||
+      message.includes('transport failed') ||
+      message.includes('connection lost') ||
+      message.includes('malformed request')
+    );
+  }
+  return false;
+}
+
+/**
  * Creates an MCP Server instance configured to aggregate tools from multiple upstream servers.
  *
  * The server handles the MCP protocol lifecycle:
@@ -32,6 +52,40 @@ export function createMcpServer(options: McpHandlerOptions): Server {
 
   // Track active sessions
   const activeSessions = new Map<string, { sessionId: string; clientInfo: unknown }>();
+
+  /**
+   * Shared cleanup logic for closing all active sessions.
+   * Used by both onclose and onerror handlers.
+   */
+  const cleanupAllSessions = async (): Promise<void> => {
+    const sessionIds = Array.from(activeSessions.keys());
+    const errors: Array<{ sessionId: string; error: unknown }> = [];
+
+    for (const sessionId of sessionIds) {
+      try {
+        console.log(`[${sessionId}] Closing session`);
+        await engine.closeSession(sessionId);
+      } catch (error) {
+        console.error(`[${sessionId}] Error closing session:`, error);
+        errors.push({ sessionId, error });
+      } finally {
+        // Always remove from map, even if closeSession fails
+        activeSessions.delete(sessionId);
+      }
+    }
+
+    if (errors.length > 0) {
+      console.error(`Failed to close ${errors.length} session(s) during cleanup`);
+
+      // If all sessions failed, throw to signal catastrophic failure
+      if (errors.length === sessionIds.length && sessionIds.length > 0) {
+        throw new Error(
+          `Complete cleanup failure: all ${errors.length} session(s) failed to close`,
+          { cause: errors }
+        );
+      }
+    }
+  };
 
   const server = new Server(serverInfo, {
     capabilities: {
@@ -60,7 +114,10 @@ export function createMcpServer(options: McpHandlerOptions): Server {
       console.log(`[${sessionId}] Session created successfully`);
     } catch (error) {
       console.error(`[${sessionId}] Failed to create session:`, error);
-      throw new Error(`Failed to initialize session: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to initialize session: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error }
+      );
     }
 
     // Return standard initialize response
@@ -80,9 +137,10 @@ export function createMcpServer(options: McpHandlerOptions): Server {
     // In M2, we'll need to track multiple sessions per agent
 
     // Find the first active session (for M1, there should only be one)
-    const sessionEntry = Array.from(activeSessions.values())[0];
+    const sessions = Array.from(activeSessions.values());
+    const sessionEntry = sessions[0];
     if (!sessionEntry) {
-      throw new Error('No active session found');
+      throw new Error('No active session found - connection may have been closed');
     }
 
     const { sessionId } = sessionEntry;
@@ -99,7 +157,10 @@ export function createMcpServer(options: McpHandlerOptions): Server {
       };
     } catch (error) {
       console.error(`[${sessionId}] Failed to list tools:`, error);
-      throw new Error(`Failed to list tools: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to list tools: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error }
+      );
     }
   });
 
@@ -108,9 +169,10 @@ export function createMcpServer(options: McpHandlerOptions): Server {
     const { name, arguments: args = {} } = request.params;
 
     // Get session ID from transport context
-    const sessionEntry = Array.from(activeSessions.values())[0];
+    const sessions = Array.from(activeSessions.values());
+    const sessionEntry = sessions[0];
     if (!sessionEntry) {
-      throw new Error('No active session found');
+      throw new Error('No active session found - connection may have been closed');
     }
 
     const { sessionId } = sessionEntry;
@@ -133,13 +195,34 @@ export function createMcpServer(options: McpHandlerOptions): Server {
       };
     } catch (error) {
       console.error(`[${sessionId}] Tool call failed: ${name}`, error);
-      throw new Error(`Tool call failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Tool call failed for "${name}": ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error }
+      );
     }
   });
 
-  // Handle connection close
-  server.onerror = async (error) => {
+  // Handle connection close - cleanup sessions when MCP server connection closes
+  server.onclose = () => {
+    console.log('MCP server connection closing, cleaning up sessions...');
+    cleanupAllSessions().catch((err) => {
+      console.error('Error during onclose session cleanup:', err);
+    });
+  };
+
+  // Handle errors
+  server.onerror = (error) => {
     console.error('MCP server error:', error);
+
+    // Check if this is a critical error that requires session cleanup
+    if (isCriticalMcpError(error)) {
+      console.error('Critical MCP server error detected, cleaning up sessions...');
+
+      // Clean up sessions asynchronously without blocking error handler
+      cleanupAllSessions().catch((err) => {
+        console.error('Unexpected error during critical error cleanup:', err);
+      });
+    }
   };
 
   return server;

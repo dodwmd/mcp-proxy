@@ -568,6 +568,173 @@ describe('MCP Aggregator Integration (M1)', () => {
       sessionId = null;
     });
   });
+
+  describe('Session Cleanup (server.onclose)', () => {
+    it('should clean up single session when connection closes', async () => {
+      const session = await engine.createSession({
+        sessionId: 'test-session-single-cleanup',
+        clientInfo: { name: 'test-client', version: '1.0.0' },
+        serverConfigs,
+      });
+      sessionId = session.id;
+
+      // Verify session exists before cleanup
+      expect(engine.getSession(sessionId!)).toBeDefined();
+
+      // Close the session (simulates server.onclose behavior)
+      await engine.closeSession(sessionId!);
+
+      // Verify session was removed
+      expect(engine.getSession(sessionId!)).toBeUndefined();
+
+      // Verify upstreams were closed
+      const weatherUpstream = mockUpstreams.get('weather')!;
+      const dbUpstream = mockUpstreams.get('database')!;
+      expect(weatherUpstream.closed).toBe(true);
+      expect(dbUpstream.closed).toBe(true);
+
+      sessionId = null;
+    });
+
+    it('should clean up multiple sessions correctly', async () => {
+      // Create multiple sessions
+      const session1 = await engine.createSession({
+        sessionId: 'test-session-multi-cleanup-1',
+        clientInfo: { name: 'test-client-1', version: '1.0.0' },
+        serverConfigs,
+      });
+
+      const session2 = await engine.createSession({
+        sessionId: 'test-session-multi-cleanup-2',
+        clientInfo: { name: 'test-client-2', version: '1.0.0' },
+        serverConfigs,
+      });
+
+      // Verify both sessions exist
+      expect(engine.getSession(session1.id)).toBeDefined();
+      expect(engine.getSession(session2.id)).toBeDefined();
+
+      // Close first session
+      await engine.closeSession(session1.id);
+
+      // First session should be gone, second should remain
+      expect(engine.getSession(session1.id)).toBeUndefined();
+      expect(engine.getSession(session2.id)).toBeDefined();
+
+      // Close second session
+      await engine.closeSession(session2.id);
+
+      // Both sessions should be gone
+      expect(engine.getSession(session1.id)).toBeUndefined();
+      expect(engine.getSession(session2.id)).toBeUndefined();
+
+      sessionId = null;
+    });
+
+    it('should handle cleanup errors gracefully without leaking sessions', async () => {
+      // Create a session
+      const session = await engine.createSession({
+        sessionId: 'test-session-error-cleanup',
+        clientInfo: { name: 'test-client', version: '1.0.0' },
+        serverConfigs,
+      });
+      sessionId = session.id;
+
+      // Make one upstream fail during close
+      const weatherUpstream = mockUpstreams.get('weather')!;
+      const originalClose = weatherUpstream.close.bind(weatherUpstream);
+      weatherUpstream.close = async () => {
+        throw new Error('Simulated close failure');
+      };
+
+      // Close session - should not throw despite upstream error
+      await expect(engine.closeSession(sessionId!)).resolves.toBeUndefined();
+
+      // Session should still be removed from map despite error
+      expect(engine.getSession(sessionId!)).toBeUndefined();
+
+      // Restore original close method
+      weatherUpstream.close = originalClose;
+      sessionId = null;
+    });
+
+    it('should remove session from map even when closeSession throws', async () => {
+      const session = await engine.createSession({
+        sessionId: 'test-session-throw-cleanup',
+        clientInfo: { name: 'test-client', version: '1.0.0' },
+        serverConfigs,
+      });
+      sessionId = session.id;
+
+      // Make both upstreams fail during close
+      const weatherUpstream = mockUpstreams.get('weather')!;
+      const dbUpstream = mockUpstreams.get('database')!;
+
+      const originalWeatherClose = weatherUpstream.close.bind(weatherUpstream);
+      const originalDbClose = dbUpstream.close.bind(dbUpstream);
+
+      weatherUpstream.close = async () => {
+        throw new Error('Weather close failed');
+      };
+      dbUpstream.close = async () => {
+        throw new Error('Database close failed');
+      };
+
+      // Close session - errors should be handled internally
+      await expect(engine.closeSession(sessionId!)).resolves.toBeUndefined();
+
+      // Session must be removed even with errors
+      expect(engine.getSession(sessionId!)).toBeUndefined();
+
+      // Restore original methods
+      weatherUpstream.close = originalWeatherClose;
+      dbUpstream.close = originalDbClose;
+      sessionId = null;
+    });
+
+    it('should close all upstream connections during cleanup', async () => {
+      const session = await engine.createSession({
+        sessionId: 'test-session-upstream-cleanup',
+        clientInfo: { name: 'test-client', version: '1.0.0' },
+        serverConfigs,
+      });
+      sessionId = session.id;
+
+      // Track close calls
+      const weatherUpstream = mockUpstreams.get('weather')!;
+      const dbUpstream = mockUpstreams.get('database')!;
+
+      let weatherCloseCalled = false;
+      let dbCloseCalled = false;
+
+      const originalWeatherClose = weatherUpstream.close.bind(weatherUpstream);
+      const originalDbClose = dbUpstream.close.bind(dbUpstream);
+
+      weatherUpstream.close = async () => {
+        weatherCloseCalled = true;
+        await originalWeatherClose();
+      };
+
+      dbUpstream.close = async () => {
+        dbCloseCalled = true;
+        await originalDbClose();
+      };
+
+      // Close session
+      await engine.closeSession(sessionId!);
+
+      // Verify all upstreams had close() called
+      expect(weatherCloseCalled).toBe(true);
+      expect(dbCloseCalled).toBe(true);
+      expect(weatherUpstream.closed).toBe(true);
+      expect(dbUpstream.closed).toBe(true);
+
+      // Restore original methods
+      weatherUpstream.close = originalWeatherClose;
+      dbUpstream.close = originalDbClose;
+      sessionId = null;
+    });
+  });
 });
 
 /**

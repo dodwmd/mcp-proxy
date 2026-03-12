@@ -108,6 +108,57 @@ servers:
     }
   });
 
+  it('should reject invalid alias formats', () => {
+    const invalidAliases = [
+      { alias: 'Test', reason: 'uppercase' },
+      { alias: '123test', reason: 'starts with number' },
+      { alias: 'test_server', reason: 'underscore' },
+      { alias: 'test server', reason: 'space' },
+    ];
+
+    for (const { alias } of invalidAliases) {
+      const yamlContent = `
+servers:
+  - alias: ${alias}
+    name: Test
+    transport: stdio
+    command: node
+`;
+      fs.writeFileSync(configPath, yamlContent);
+
+      const loader = new YamlConfigLoader(configPath);
+
+      expect(() => loader.load()).toThrow(ConfigValidationError);
+      try {
+        loader.load();
+      } catch (err) {
+        expect(err).toBeInstanceOf(ConfigValidationError);
+        const errors = (err as ConfigValidationError).errors;
+        expect(errors.some((e: string) => e.includes('Invalid alias format'))).toBe(true);
+      }
+    }
+  });
+
+  it('should accept valid alias formats', () => {
+    const validAliases = ['test', 'test-server', 'test123', 'a', 'test-123-abc'];
+
+    for (const alias of validAliases) {
+      const yamlContent = `
+servers:
+  - alias: ${alias}
+    name: Test
+    transport: stdio
+    command: node
+`;
+      fs.writeFileSync(configPath, yamlContent);
+
+      const loader = new YamlConfigLoader(configPath);
+      const config = loader.load();
+
+      expect(config.servers[0].alias).toBe(alias);
+    }
+  });
+
   it('should reject duplicate guild slugs', () => {
     const yamlContent = `
 servers:
