@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPUpstream } from './streamable-http.js';
 import type { ResolvedServerConfig } from '../config/types.js';
 
@@ -365,16 +366,14 @@ describe('StreamableHTTPUpstream', () => {
 
       upstream = new StreamableHTTPUpstream(config, 'session-123', false, 1000);
 
+      // Mock Client.connect to succeed so keepalive timer starts
+      const connectSpy = vi.spyOn(Client.prototype, 'connect').mockResolvedValue(undefined);
+
       // Mock the ping method to track calls
       const pingSpy = vi.spyOn(upstream, 'ping').mockResolvedValue(true);
 
-      // Simulate init to start the keepalive timer
-      // Note: This won't actually connect since we're mocking, but it starts the timer
-      try {
-        await upstream.init({ name: 'test', version: '1.0.0' });
-      } catch {
-        // Expected to fail since we're not actually connecting
-      }
+      // Initialize to start the keepalive timer
+      await upstream.init({ name: 'test', version: '1.0.0' });
 
       // Advance time and verify ping was called
       await vi.advanceTimersByTimeAsync(1000);
@@ -383,6 +382,7 @@ describe('StreamableHTTPUpstream', () => {
       await vi.advanceTimersByTimeAsync(1000);
       expect(pingSpy).toHaveBeenCalledTimes(2);
 
+      connectSpy.mockRestore();
       vi.useRealTimers();
     });
 
@@ -401,15 +401,15 @@ describe('StreamableHTTPUpstream', () => {
 
       upstream = new StreamableHTTPUpstream(config, 'session-123', false, 1000);
 
+      // Mock Client.connect to succeed so keepalive timer starts
+      const connectSpy = vi.spyOn(Client.prototype, 'connect').mockResolvedValue(undefined);
+      const closeSpy = vi.spyOn(Client.prototype, 'close').mockResolvedValue(undefined);
+
       // Mock the ping method
       const pingSpy = vi.spyOn(upstream, 'ping').mockResolvedValue(true);
 
-      // Simulate init to start the keepalive timer
-      try {
-        await upstream.init({ name: 'test', version: '1.0.0' });
-      } catch {
-        // Expected to fail
-      }
+      // Initialize to start the keepalive timer
+      await upstream.init({ name: 'test', version: '1.0.0' });
 
       // Close the upstream
       await upstream.close();
@@ -419,6 +419,8 @@ describe('StreamableHTTPUpstream', () => {
       await vi.advanceTimersByTimeAsync(5000);
       expect(pingSpy).toHaveBeenCalledTimes(callCountBeforeAdvance);
 
+      connectSpy.mockRestore();
+      closeSpy.mockRestore();
       vi.useRealTimers();
     });
   });
