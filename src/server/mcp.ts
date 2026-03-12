@@ -76,6 +76,14 @@ export function createMcpServer(options: McpHandlerOptions): Server {
 
     if (errors.length > 0) {
       console.error(`Failed to close ${errors.length} session(s) during cleanup`);
+
+      // If all sessions failed, throw to signal catastrophic failure
+      if (errors.length === sessionIds.length && sessionIds.length > 0) {
+        throw new Error(
+          `Complete cleanup failure: all ${errors.length} session(s) failed to close`,
+          { cause: errors }
+        );
+      }
     }
   };
 
@@ -194,10 +202,12 @@ export function createMcpServer(options: McpHandlerOptions): Server {
     }
   });
 
-  // Handle connection close - cleanup sessions when transport closes
-  server.onclose = async () => {
+  // Handle connection close - cleanup sessions when MCP server connection closes
+  server.onclose = () => {
     console.log('MCP server connection closing, cleaning up sessions...');
-    await cleanupAllSessions();
+    cleanupAllSessions().catch((err) => {
+      console.error('Error during onclose session cleanup:', err);
+    });
   };
 
   // Handle errors
