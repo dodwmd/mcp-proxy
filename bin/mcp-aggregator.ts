@@ -44,7 +44,7 @@ program
 
       // Initialize database
       const dbPath = path.join(homePath, 'mcp-aggregator.db');
-      const { db } = createDbClient(dbPath);
+      const { db } = await createDbClient(dbPath);
 
       // Run migrations
       console.log('Running database migrations...');
