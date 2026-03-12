@@ -153,6 +153,13 @@ export class YamlConfigLoader implements IConfigLoader {
         continue;
       }
 
+      // Validate alias format: must start with lowercase letter, followed by lowercase letters, digits, or hyphens
+      // This matches the namespace parser regex in aggregator/namespace.ts
+      if (!/^[a-z][a-z0-9-]*$/.test(rawServer.alias)) {
+        errors.push(`Invalid alias format '${rawServer.alias}': must start with a lowercase letter and contain only lowercase letters, digits, or hyphens`);
+        continue;
+      }
+
       if (aliases.has(rawServer.alias)) {
         errors.push(`Duplicate server alias: ${rawServer.alias}`);
         continue;

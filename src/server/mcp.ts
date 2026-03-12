@@ -137,7 +137,24 @@ export function createMcpServer(options: McpHandlerOptions): Server {
     }
   });
 
-  // Handle connection close
+  // Handle connection close - cleanup sessions when transport closes
+  server.onclose = async () => {
+    console.log('MCP server connection closing, cleaning up sessions...');
+
+    // Close all active sessions and remove from map
+    const sessionIds = Array.from(activeSessions.keys());
+    for (const sessionId of sessionIds) {
+      try {
+        console.log(`[${sessionId}] Closing session`);
+        await engine.closeSession(sessionId);
+        activeSessions.delete(sessionId);
+      } catch (error) {
+        console.error(`[${sessionId}] Error closing session:`, error);
+      }
+    }
+  };
+
+  // Handle errors
   server.onerror = async (error) => {
     console.error('MCP server error:', error);
   };
