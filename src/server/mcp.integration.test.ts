@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { AggregatorEngine } from '../aggregator/engine.js';
 import type { ResolvedServerConfig } from '../config/types.js';
 import type { IUpstreamHandle } from '../upstream/types.js';
@@ -652,7 +652,7 @@ class MockAggregatorEngine extends AggregatorEngine {
   }
 
   override async createSession(params: any): Promise<any> {
-    const { sessionId, clientInfo, serverConfigs } = params;
+    const { sessionId, serverConfigs } = params;
 
     // Create mock connections based on configured servers
     const upstreamHandles = new Map<string, IUpstreamHandle>();

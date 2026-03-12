@@ -47,14 +47,6 @@ export class UpstreamConnectionManager {
   }
 
   /**
-   * Get the transport registry.
-   * @deprecated Use this.transportRegistry directly for better performance.
-   */
-  private getTransportRegistry(): Record<TransportType, UpstreamFactory> {
-    return this.transportRegistry;
-  }
-
-  /**
    * Connect to all enabled servers from config.
    * Initializes connections concurrently up to the configured limit.
    */
