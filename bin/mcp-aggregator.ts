@@ -63,8 +63,11 @@ program
       // Sync config to database
       await store.syncConfig(config);
 
-      // Initialize aggregator engine
-      const engine = new AggregatorEngine();
+      // Initialize aggregator engine with runtime config
+      const engine = new AggregatorEngine({
+        allowPrivateUrls: config.runtime.allowPrivateUrls,
+        httpKeepaliveMs: config.runtime.httpKeepaliveMs,
+      });
 
       // Get resolved server configs from the config store
       // For M1, we use all servers from the config

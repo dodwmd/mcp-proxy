@@ -2,20 +2,8 @@ import type { IUpstreamHandle, UpstreamFactory } from './types.js';
 import type { ResolvedServerConfig } from '../config/types.js';
 import type { TransportType, UpstreamStatus } from '../types/common.js';
 import { StdioUpstream } from './stdio.js';
-
-/**
- * Transport registry - maps transport types to factory functions.
- * To add a new transport: import it and add an entry below.
- */
-const TRANSPORT_REGISTRY: Record<TransportType, UpstreamFactory> = {
-  stdio: (cfg, sessionId) => new StdioUpstream(cfg, sessionId),
-  streamablehttp: () => {
-    throw new Error('StreamableHTTP transport not yet implemented (M4)');
-  },
-  sse: () => {
-    throw new Error('SSE transport not yet implemented (M4)');
-  },
-};
+import { StreamableHTTPUpstream } from './streamable-http.js';
+import { SSEUpstream } from './sse.js';
 
 /**
  * Result of connecting to an upstream server.
@@ -27,11 +15,40 @@ export interface UpstreamConnectionResult {
 }
 
 /**
+ * Runtime configuration for upstream connections.
+ */
+export interface UpstreamRuntimeConfig {
+  allowPrivateUrls?: boolean;
+  httpKeepaliveMs?: number;
+}
+
+/**
  * Manages connections to multiple upstream MCP servers.
  * Handles concurrent initialization, error handling, and lifecycle.
  */
 export class UpstreamConnectionManager {
   private handles = new Map<string, IUpstreamHandle>();
+  private readonly allowPrivateUrls: boolean;
+  private readonly httpKeepaliveMs: number;
+
+  constructor(runtimeConfig: UpstreamRuntimeConfig = {}) {
+    this.allowPrivateUrls = runtimeConfig.allowPrivateUrls ?? false;
+    this.httpKeepaliveMs = runtimeConfig.httpKeepaliveMs ?? 30000;
+  }
+
+  /**
+   * Transport registry - maps transport types to factory functions.
+   * Defined as instance method to access runtime config.
+   */
+  private getTransportRegistry(): Record<TransportType, UpstreamFactory> {
+    return {
+      stdio: (cfg, sessionId) => new StdioUpstream(cfg, sessionId),
+      streamablehttp: (cfg, sessionId) =>
+        new StreamableHTTPUpstream(cfg, sessionId, this.allowPrivateUrls, this.httpKeepaliveMs),
+      sse: (cfg, sessionId) =>
+        new SSEUpstream(cfg, sessionId, this.allowPrivateUrls, this.httpKeepaliveMs),
+    };
+  }
 
   /**
    * Connect to all enabled servers from config.
@@ -75,7 +92,8 @@ export class UpstreamConnectionManager {
     clientInfo: { name: string; version: string }
   ): Promise<UpstreamConnectionResult> {
     try {
-      const factory = TRANSPORT_REGISTRY[server.transport];
+      const registry = this.getTransportRegistry();
+      const factory = registry[server.transport];
       if (!factory) {
         return {
           handle: null,
