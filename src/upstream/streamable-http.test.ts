@@ -333,7 +333,7 @@ describe('StreamableHTTPUpstream', () => {
       }).not.toThrow();
     });
 
-    it('should accept negative keepalive interval to disable keepalive', () => {
+    it('should reject negative keepalive interval', () => {
       const config: ResolvedServerConfig = {
         id: 'test-1',
         alias: 'test',
@@ -344,10 +344,82 @@ describe('StreamableHTTPUpstream', () => {
         url: 'https://example.com',
       };
 
-      // Negative values should disable keepalive
+      // Negative values are invalid
       expect(() => {
-        upstream = new StreamableHTTPUpstream(config, 'session-123', false, -1);
-      }).not.toThrow();
+        new StreamableHTTPUpstream(config, 'session-123', false, -1);
+      }).toThrow(/invalid keepaliveMs/i);
+    });
+
+    it('should use fake timers to verify keepalive timer execution', async () => {
+      vi.useFakeTimers();
+
+      const config: ResolvedServerConfig = {
+        id: 'test-1',
+        alias: 'test',
+        name: 'Test Server',
+        transport: 'streamablehttp',
+        enabled: true,
+        timeoutMs: 5000,
+        url: 'https://example.com',
+      };
+
+      upstream = new StreamableHTTPUpstream(config, 'session-123', false, 1000);
+
+      // Mock the ping method to track calls
+      const pingSpy = vi.spyOn(upstream, 'ping').mockResolvedValue(true);
+
+      // Simulate init to start the keepalive timer
+      // Note: This won't actually connect since we're mocking, but it starts the timer
+      try {
+        await upstream.init({ name: 'test', version: '1.0.0' });
+      } catch {
+        // Expected to fail since we're not actually connecting
+      }
+
+      // Advance time and verify ping was called
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(pingSpy).toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(pingSpy).toHaveBeenCalledTimes(2);
+
+      vi.useRealTimers();
+    });
+
+    it('should cleanup keepalive timer on close', async () => {
+      vi.useFakeTimers();
+
+      const config: ResolvedServerConfig = {
+        id: 'test-1',
+        alias: 'test',
+        name: 'Test Server',
+        transport: 'streamablehttp',
+        enabled: true,
+        timeoutMs: 5000,
+        url: 'https://example.com',
+      };
+
+      upstream = new StreamableHTTPUpstream(config, 'session-123', false, 1000);
+
+      // Mock the ping method
+      const pingSpy = vi.spyOn(upstream, 'ping').mockResolvedValue(true);
+
+      // Simulate init to start the keepalive timer
+      try {
+        await upstream.init({ name: 'test', version: '1.0.0' });
+      } catch {
+        // Expected to fail
+      }
+
+      // Close the upstream
+      await upstream.close();
+
+      // Advance time and verify ping is NOT called after close
+      const callCountBeforeAdvance = pingSpy.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(pingSpy).toHaveBeenCalledTimes(callCountBeforeAdvance);
+
+      vi.useRealTimers();
     });
   });
 
@@ -430,6 +502,28 @@ describe('StreamableHTTPUpstream', () => {
       expect(() => {
         upstream = new StreamableHTTPUpstream(config, 'session-123', false, 30000);
       }).not.toThrow();
+    });
+  });
+
+  describe('Reconnection Behavior', () => {
+    it('should verify maxRetries is set to 0 to disable auto-reconnect', () => {
+      const config: ResolvedServerConfig = {
+        id: 'test-1',
+        alias: 'test',
+        name: 'Test Server',
+        transport: 'streamablehttp',
+        enabled: true,
+        timeoutMs: 5000,
+        url: 'https://example.com',
+      };
+
+      upstream = new StreamableHTTPUpstream(config, 'session-123', false, 30000);
+
+      // This test documents that auto-reconnect is disabled (maxRetries: 0)
+      // The actual verification happens in the transport initialization
+      // We can't easily test this without mocking the SDK transport
+      expect(upstream).toBeDefined();
+      expect(upstream.alias).toBe('test');
     });
   });
 

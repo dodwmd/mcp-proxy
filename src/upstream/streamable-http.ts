@@ -21,6 +21,8 @@ export class StreamableHTTPUpstream implements IUpstreamHandle {
   private initialized = false;
   private closed = false;
   private keepaliveTimer: NodeJS.Timeout | null = null;
+  private keepaliveFailureCount = 0;
+  private readonly maxKeepaliveFailures = 3;
 
   constructor(
     config: ResolvedServerConfig,
@@ -30,6 +32,11 @@ export class StreamableHTTPUpstream implements IUpstreamHandle {
   ) {
     if (!config.url) {
       throw new Error(`StreamableHTTP server ${config.alias} missing url`);
+    }
+
+    // Validate keepalive configuration
+    if (keepaliveMs < 0) {
+      throw new Error(`StreamableHTTP server ${config.alias} has invalid keepaliveMs: ${keepaliveMs} (must be >= 0)`);
     }
 
     this.serverId = config.id;
@@ -91,7 +98,8 @@ export class StreamableHTTPUpstream implements IUpstreamHandle {
     try {
       await this.client?.ping();
       return true;
-    } catch {
+    } catch (err) {
+      console.error(`[${this.alias}] Ping failed:`, err);
       return false;
     }
   }
@@ -113,6 +121,9 @@ export class StreamableHTTPUpstream implements IUpstreamHandle {
         await this.client.close();
       } catch (err) {
         console.error(`[${this.alias}] Error closing client:`, err);
+        this.client = null;
+        this.transport = null;
+        throw err; // Re-throw to propagate resource cleanup failures
       }
       this.client = null;
     }
@@ -191,10 +202,40 @@ export class StreamableHTTPUpstream implements IUpstreamHandle {
       try {
         const healthy = await this.ping();
         if (!healthy) {
-          console.warn(`[${this.alias}] HTTP keepalive ping failed, connection may be stale`);
+          this.keepaliveFailureCount++;
+          console.warn(
+            `[${this.alias}] HTTP keepalive ping failed (${this.keepaliveFailureCount}/${this.maxKeepaliveFailures}), connection may be stale`
+          );
+
+          // Auto-close after too many consecutive failures
+          if (this.keepaliveFailureCount >= this.maxKeepaliveFailures) {
+            console.error(
+              `[${this.alias}] HTTP keepalive exceeded ${this.maxKeepaliveFailures} failures, closing connection`
+            );
+            await this.close().catch((err) =>
+              console.error(`[${this.alias}] Error during auto-close:`, err)
+            );
+          }
+        } else {
+          // Reset failure count on successful ping
+          this.keepaliveFailureCount = 0;
         }
       } catch (err) {
-        console.error(`[${this.alias}] HTTP keepalive error:`, err);
+        this.keepaliveFailureCount++;
+        console.error(
+          `[${this.alias}] HTTP keepalive error (${this.keepaliveFailureCount}/${this.maxKeepaliveFailures}):`,
+          err
+        );
+
+        // Auto-close after too many consecutive errors
+        if (this.keepaliveFailureCount >= this.maxKeepaliveFailures) {
+          console.error(
+            `[${this.alias}] HTTP keepalive exceeded ${this.maxKeepaliveFailures} errors, closing connection`
+          );
+          await this.close().catch((closeErr) =>
+            console.error(`[${this.alias}] Error during auto-close:`, closeErr)
+          );
+        }
       }
     }, this.keepaliveMs);
 
