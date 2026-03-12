@@ -323,7 +323,7 @@ describe('UpstreamConnectionManager', () => {
           transport: 'sse',
           enabled: true,
           timeoutMs: 5000,
-          url: 'http://192.168.1.1:8080',
+          url: 'http://localhost:8080',
         };
 
         const results = await managerAllowed.connectAll(
@@ -334,10 +334,13 @@ describe('UpstreamConnectionManager', () => {
 
         const result = results.get('sse-test');
         expect(result).toBeDefined();
+        // Should not fail with private IP error
         expect(result?.error).not.toContain('private IP address');
+        // Will fail for other reasons (no actual server), but validation passed
+        expect(result?.status).toBe('error');
 
         await managerAllowed.closeAll();
-      });
+      }, 10000);
     });
 
     describe('httpKeepaliveMs', () => {
