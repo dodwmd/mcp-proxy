@@ -95,7 +95,10 @@ export class YamlConfigLoader implements IConfigLoader {
     }
   }
 
-  watch(onChange: (next: ResolvedConfig, prev: ResolvedConfig) => void): () => void {
+  watch(
+    onChange: (next: ResolvedConfig, prev: ResolvedConfig) => void,
+    onError?: (error: Error) => void
+  ): () => void {
     // Simplified watcher for M1 - full chokidar implementation with debouncing in watcher.ts
     let prev = this.load();
 
@@ -106,7 +109,14 @@ export class YamlConfigLoader implements IConfigLoader {
           onChange(next, prev);
           prev = next;
         } catch (err) {
-          console.error('[ERROR] Config reload failed:', err);
+          const error = err instanceof Error ? err : new Error(String(err));
+          if (onError) {
+            // Call the error handler - caller decides how to handle (retry, alert, etc.)
+            onError(error);
+          } else {
+            // Fallback to console logging if no error handler provided (backward compatibility)
+            console.error('[ERROR] Config reload failed:', error);
+          }
         }
       }
     });
