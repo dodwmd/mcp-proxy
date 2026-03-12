@@ -20,6 +20,26 @@ export interface McpHandlerOptions {
 }
 
 /**
+ * Determines if an MCP error is critical and requires session cleanup.
+ * Critical errors include protocol violations and transport failures that
+ * indicate the server state is unrecoverable.
+ */
+function isCriticalMcpError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes('protocol_violation') ||
+      message.includes('protocol violation') ||
+      message.includes('transport_failed') ||
+      message.includes('transport failed') ||
+      message.includes('connection lost') ||
+      message.includes('malformed request')
+    );
+  }
+  return false;
+}
+
+/**
  * Creates an MCP Server instance configured to aggregate tools from multiple upstream servers.
  *
  * The server handles the MCP protocol lifecycle:
@@ -143,20 +163,44 @@ export function createMcpServer(options: McpHandlerOptions): Server {
 
     // Close all active sessions and remove from map
     const sessionIds = Array.from(activeSessions.keys());
+    const errors: Array<{ sessionId: string; error: unknown }> = [];
+
     for (const sessionId of sessionIds) {
       try {
         console.log(`[${sessionId}] Closing session`);
         await engine.closeSession(sessionId);
-        activeSessions.delete(sessionId);
       } catch (error) {
         console.error(`[${sessionId}] Error closing session:`, error);
+        errors.push({ sessionId, error });
+      } finally {
+        // Always remove from map, even if closeSession fails
+        activeSessions.delete(sessionId);
       }
+    }
+
+    if (errors.length > 0) {
+      console.error(`Failed to close ${errors.length} session(s) during cleanup`);
     }
   };
 
   // Handle errors
   server.onerror = async (error) => {
     console.error('MCP server error:', error);
+
+    // Check if this is a critical error that requires session cleanup
+    if (isCriticalMcpError(error)) {
+      console.error('Critical MCP server error detected, cleaning up sessions...');
+      const sessionIds = Array.from(activeSessions.keys());
+      for (const sessionId of sessionIds) {
+        try {
+          await engine.closeSession(sessionId);
+        } catch (closeError) {
+          console.error(`[${sessionId}] Failed to close session:`, closeError);
+        } finally {
+          activeSessions.delete(sessionId);
+        }
+      }
+    }
   };
 
   return server;
