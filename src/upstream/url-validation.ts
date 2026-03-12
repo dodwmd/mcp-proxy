@@ -14,6 +14,13 @@ export function isPrivateIP(hostname: string): boolean {
   }
 
   // IPv4-mapped IPv6 addresses (::ffff:0:0/96)
+  // Check dotted-decimal format first: ::ffff:192.168.1.1
+  const ipv4MappedDecimalMatch = hostname.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (ipv4MappedDecimalMatch) {
+    // Recursively check the embedded IPv4 address
+    return isPrivateIP(ipv4MappedDecimalMatch[1]);
+  }
+
   // Matches ::ffff:xxxx:xxxx format where xxxx are hex-encoded IPv4 octets
   const ipv4MappedMatch = hostname.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
   if (ipv4MappedMatch) {
@@ -29,8 +36,9 @@ export function isPrivateIP(hostname: string): boolean {
     return isPrivateIP(ipv4Addr);
   }
 
-  // IPv4 private ranges (RFC 1918)
+  // IPv4 private ranges (RFC 1918) and reserved ranges
   const ipv4PrivateRanges = [
+    /^0\./,                            // 0.0.0.0/8 (current network, reserved)
     /^127\./,                          // 127.0.0.0/8 (loopback)
     /^10\./,                           // 10.0.0.0/8 (private)
     /^172\.(1[6-9]|2[0-9]|3[01])\./,  // 172.16.0.0/12 (private)
@@ -43,8 +51,8 @@ export function isPrivateIP(hostname: string): boolean {
     /^::$/,                            // :: (unspecified address - equivalent to 0.0.0.0)
     /^::1$/,                           // ::1 (loopback)
     /^fe80:/i,                         // fe80::/10 (link-local)
-    /^fc[0-9a-f]{2}:/i,                // fc00::/7 (unique local)
-    /^fd[0-9a-f]{2}:/i,                // fd00::/8 (unique local)
+    /^fc[0-9a-f]{2}:/i,                // fc00::/7 (unique local addresses)
+    /^fd[0-9a-f]{2}:/i,                // fd00::/8 (unique local addresses - subset of fc00::/7)
   ];
 
   // Check IPv4 ranges

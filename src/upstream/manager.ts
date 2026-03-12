@@ -30,24 +30,28 @@ export class UpstreamConnectionManager {
   private handles = new Map<string, IUpstreamHandle>();
   private readonly allowPrivateUrls: boolean;
   private readonly httpKeepaliveMs: number;
+  private readonly transportRegistry: Record<TransportType, UpstreamFactory>;
 
   constructor(runtimeConfig: UpstreamRuntimeConfig = {}) {
     this.allowPrivateUrls = runtimeConfig.allowPrivateUrls ?? false;
     this.httpKeepaliveMs = runtimeConfig.httpKeepaliveMs ?? 30000;
-  }
 
-  /**
-   * Transport registry - maps transport types to factory functions.
-   * Defined as instance method to access runtime config.
-   */
-  private getTransportRegistry(): Record<TransportType, UpstreamFactory> {
-    return {
+    // Build transport registry once in constructor
+    this.transportRegistry = {
       stdio: (cfg, sessionId) => new StdioUpstream(cfg, sessionId),
       streamablehttp: (cfg, sessionId) =>
         new StreamableHTTPUpstream(cfg, sessionId, this.allowPrivateUrls, this.httpKeepaliveMs),
       sse: (cfg, sessionId) =>
         new SSEUpstream(cfg, sessionId, this.allowPrivateUrls, this.httpKeepaliveMs),
     };
+  }
+
+  /**
+   * Get the transport registry.
+   * @deprecated Use this.transportRegistry directly for better performance.
+   */
+  private getTransportRegistry(): Record<TransportType, UpstreamFactory> {
+    return this.transportRegistry;
   }
 
   /**
@@ -92,8 +96,7 @@ export class UpstreamConnectionManager {
     clientInfo: { name: string; version: string }
   ): Promise<UpstreamConnectionResult> {
     try {
-      const registry = this.getTransportRegistry();
-      const factory = registry[server.transport];
+      const factory = this.transportRegistry[server.transport];
       if (!factory) {
         return {
           handle: null,

@@ -113,6 +113,40 @@ describe('URL Validation', () => {
       });
     });
 
+    describe('IPv4-mapped IPv6 Addresses', () => {
+      it('should detect IPv4-mapped IPv6 with dotted-decimal private IPs', () => {
+        // Dotted-decimal format: ::ffff:192.168.1.1
+        expect(isPrivateIP('::ffff:192.168.1.1')).toBe(true);
+        expect(isPrivateIP('::ffff:10.0.0.1')).toBe(true);
+        expect(isPrivateIP('::ffff:172.16.0.1')).toBe(true);
+        expect(isPrivateIP('::ffff:127.0.0.1')).toBe(true);
+        expect(isPrivateIP('::ffff:169.254.1.1')).toBe(true);
+        expect(isPrivateIP('::ffff:0.0.0.0')).toBe(true);
+      });
+
+      it('should detect IPv4-mapped IPv6 with hex-encoded private IPs', () => {
+        // Hex format: ::ffff:c0a8:0101 (192.168.1.1)
+        expect(isPrivateIP('::ffff:c0a8:0101')).toBe(true); // 192.168.1.1
+        expect(isPrivateIP('::ffff:0a00:0001')).toBe(true); // 10.0.0.1
+        expect(isPrivateIP('::ffff:ac10:0001')).toBe(true); // 172.16.0.1
+        expect(isPrivateIP('::ffff:7f00:0001')).toBe(true); // 127.0.0.1
+      });
+
+      it('should not detect IPv4-mapped IPv6 with public IPs as private', () => {
+        // Dotted-decimal format with public IPs
+        expect(isPrivateIP('::ffff:8.8.8.8')).toBe(false); // Google DNS
+        expect(isPrivateIP('::ffff:1.1.1.1')).toBe(false); // Cloudflare DNS
+
+        // Hex format with public IPs
+        expect(isPrivateIP('::ffff:0808:0808')).toBe(false); // 8.8.8.8
+        expect(isPrivateIP('::ffff:0101:0101')).toBe(false); // 1.1.1.1
+      });
+
+      it('should detect unspecified address :: as private', () => {
+        expect(isPrivateIP('::')).toBe(true);
+      });
+    });
+
     describe('Edge Cases', () => {
       it('should handle hostnames that are not IPs', () => {
         expect(isPrivateIP('example.com')).toBe(false);
