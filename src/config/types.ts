@@ -67,8 +67,13 @@ export interface IConfigLoader {
   /**
    * Watch for config changes and invoke callback with new and previous config.
    * Returns cleanup function to stop watching.
+   * @param onChange - Called when config successfully reloads with new and previous config
+   * @param onError - Optional callback for reload failures. If not provided, errors are logged to console.
    */
-  watch(onChange: (next: ResolvedConfig, prev: ResolvedConfig) => void): () => void;
+  watch(
+    onChange: (next: ResolvedConfig, prev: ResolvedConfig) => void,
+    onError?: (error: Error) => void
+  ): () => void;
 
   /**
    * Validate config without loading (for CLI validate command).
