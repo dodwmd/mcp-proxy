@@ -7,7 +7,7 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import type { IAggregatorEngine } from '../aggregator/types.js';
+import type { IAggregatorEngine, CreateSessionParams } from '../aggregator/types.js';
 import type { ResolvedServerConfig } from '../config/types.js';
 
 export interface McpHandlerOptions {
@@ -51,7 +51,7 @@ export function createMcpServer(options: McpHandlerOptions): Server {
   const { engine, serverConfigs, serverInfo = { name: 'mcp-aggregator', version: '0.1.0' } } = options;
 
   // Track active sessions
-  const activeSessions = new Map<string, { sessionId: string; clientInfo: unknown }>();
+  const activeSessions = new Map<string, { sessionId: string; clientInfo: CreateSessionParams['clientInfo'] }>();
 
   // Guard against concurrent cleanup calls
   let cleanupPromise: Promise<void> | null = null;
@@ -105,8 +105,10 @@ export function createMcpServer(options: McpHandlerOptions): Server {
   });
 
   // Handle initialization
-  server.setRequestHandler(InitializeRequestSchema, async (request) => {
-    const sessionId = randomUUID();
+  server.setRequestHandler(InitializeRequestSchema, async (request, extra) => {
+    // Use transport-provided sessionId if available, otherwise generate one
+    // This ensures consistency with the transport layer
+    const sessionId = extra.sessionId ?? randomUUID();
     const clientInfo = request.params.clientInfo;
 
     console.log(`[${sessionId}] Initializing MCP session for client: ${clientInfo.name}`);
@@ -142,19 +144,12 @@ export function createMcpServer(options: McpHandlerOptions): Server {
   });
 
   // Handle tools/list
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    // Get session ID from transport context
-    // For M1, we use a single implicit session per connection
-    // In M2, we'll need to track multiple sessions per agent
-
-    // Find the first active session (for M1, there should only be one)
-    const sessions = Array.from(activeSessions.values());
-    const sessionEntry = sessions[0];
-    if (!sessionEntry) {
-      throw new Error('No active session found - connection may have been closed');
+  server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
+    // Get session ID from transport context provided by the SDK
+    const sessionId = extra.sessionId ?? Array.from(activeSessions.values())[0]?.sessionId;
+    if (!sessionId || !activeSessions.has(sessionId)) {
+      throw new Error(`Session not found: ${sessionId ?? 'undefined'}`);
     }
-
-    const { sessionId } = sessionEntry;
 
     console.log(`[${sessionId}] Listing tools`);
 
@@ -176,17 +171,14 @@ export function createMcpServer(options: McpHandlerOptions): Server {
   });
 
   // Handle tools/call
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args = {} } = request.params;
 
-    // Get session ID from transport context
-    const sessions = Array.from(activeSessions.values());
-    const sessionEntry = sessions[0];
-    if (!sessionEntry) {
-      throw new Error('No active session found - connection may have been closed');
+    // Get session ID from transport context provided by the SDK
+    const sessionId = extra.sessionId ?? Array.from(activeSessions.values())[0]?.sessionId;
+    if (!sessionId || !activeSessions.has(sessionId)) {
+      throw new Error(`Session not found: ${sessionId ?? 'undefined'}`);
     }
-
-    const { sessionId } = sessionEntry;
 
     console.log(`[${sessionId}] Calling tool: ${name}`);
 
