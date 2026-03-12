@@ -164,7 +164,10 @@ export class UpstreamConnectionManager {
     const status = new Map();
 
     for (const [alias, handle] of this.handles.entries()) {
-      const healthy = await handle.ping().catch(() => false);
+      const healthy = await handle.ping().catch((error) => {
+        console.warn(`[${alias}] Health check failed:`, error);
+        return false;
+      });
       status.set(alias, {
         alias,
         connected: true,

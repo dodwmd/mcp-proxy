@@ -78,7 +78,11 @@ export class StdioUpstream implements IUpstreamHandle {
     try {
       await this.client?.ping();
       return true;
-    } catch {
+    } catch (error) {
+      console.warn(
+        `[${this.alias}] Ping failed:`,
+        error instanceof Error ? error.message : String(error)
+      );
       return false;
     }
   }

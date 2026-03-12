@@ -61,6 +61,11 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Expr
           error: 'Internal server error',
           message: error instanceof Error ? error.message : String(error),
         });
+      } else {
+        console.error(
+          '[CRITICAL] Response headers already sent, cannot send error. Closing connection.'
+        );
+        res.socket?.destroy();
       }
     }
   });

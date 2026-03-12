@@ -135,6 +135,7 @@ export class AggregatorEngine implements IAggregatorEngine {
           .listTools()
           .then((tools) => ({ alias, tools }))
           .catch((error) => {
+            console.error(`[${sessionId}] Error listing tools from "${alias}":`, error);
             return { alias, tools: [], error };
           })
       );
@@ -185,6 +186,7 @@ export class AggregatorEngine implements IAggregatorEngine {
           .listResources()
           .then((resources) => ({ alias, resources }))
           .catch((error) => {
+            console.error(`[${sessionId}] Error listing resources from "${alias}":`, error);
             return { alias, resources: [], error };
           })
       );
@@ -232,6 +234,7 @@ export class AggregatorEngine implements IAggregatorEngine {
           .listPrompts()
           .then((prompts) => ({ alias, prompts }))
           .catch((error) => {
+            console.error(`[${sessionId}] Error listing prompts from "${alias}":`, error);
             return { alias, prompts: [], error };
           })
       );
