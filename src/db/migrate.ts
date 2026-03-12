@@ -1,4 +1,5 @@
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import type { Database as BetterSQLite3Database } from 'better-sqlite3';
 import { createDbClient } from './client.js';
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
@@ -62,7 +63,7 @@ export async function runMigrations(options: MigrateOptions): Promise<void> {
  * Returns count of migrations not yet applied.
  */
 async function checkPendingMigrations(
-  sqlite: any,
+  sqlite: BetterSQLite3Database,
   migrationsFolder: string
 ): Promise<number> {
   // Check if migrations journal table exists

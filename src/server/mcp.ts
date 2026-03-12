@@ -31,7 +31,7 @@ export function createMcpServer(options: McpHandlerOptions): Server {
   const { engine, serverConfigs, serverInfo = { name: 'mcp-aggregator', version: '0.1.0' } } = options;
 
   // Track active sessions
-  const activeSessions = new Map<string, { sessionId: string; clientInfo: any }>();
+  const activeSessions = new Map<string, { sessionId: string; clientInfo: unknown }>();
 
   const server = new Server(serverInfo, {
     capabilities: {

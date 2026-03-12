@@ -604,6 +604,7 @@ class MockUpstreamHandle implements IUpstreamHandle {
     this.closed = true;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getClient(): any {
     return null;
   }
@@ -651,6 +652,7 @@ class MockAggregatorEngine extends AggregatorEngine {
     this.mockUpstreams = mockUpstreams;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   override async createSession(params: any): Promise<any> {
     const { sessionId, serverConfigs } = params;
 
@@ -680,6 +682,7 @@ class MockAggregatorEngine extends AggregatorEngine {
       inFlightCalls: 0,
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (this as any).sessions.set(sessionId, session);
 
     return {

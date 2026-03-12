@@ -315,7 +315,7 @@ export class AggregatorEngine implements IAggregatorEngine {
       throw new Error(`Invalid namespaced resource URI format: ${namespacedUri}`);
     }
 
-    const { alias, uri: _uri } = parsed;
+    const { alias } = parsed;
 
     // Find upstream handle
     const handle = session.upstreamHandles.get(alias);
@@ -348,7 +348,7 @@ export class AggregatorEngine implements IAggregatorEngine {
       throw new Error(`Invalid namespaced prompt name format: ${namespacedName}`);
     }
 
-    const { alias, name: _name } = parsed;
+    const { alias } = parsed;
 
     // Find upstream handle
     const handle = session.upstreamHandles.get(alias);

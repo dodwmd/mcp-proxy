@@ -19,6 +19,7 @@ describe('UpstreamConnectionManager', () => {
         id: 'test-1',
         alias: 'test',
         name: 'Test Server',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         transport: 'unknown' as any,
         enabled: true,
         timeoutMs: 5000,
