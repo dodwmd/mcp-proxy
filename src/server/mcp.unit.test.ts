@@ -54,10 +54,10 @@ describe('MCP Server Unit Tests', () => {
       };
 
       // Access private handler via server
-      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown, extra: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
-      await initHandler(request);
+      await initHandler(request, { sessionId: 'test-session-id' });
 
       // Trigger error handler with critical error
       const criticalError = new Error('protocol_violation: invalid request');
@@ -86,7 +86,7 @@ describe('MCP Server Unit Tests', () => {
       const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
-      await initHandler(request);
+      await initHandler(request, { sessionId: 'test-session-id' });
 
       // Test case insensitive matching
       const criticalError = new Error('Transport Failed: connection lost');
@@ -114,7 +114,7 @@ describe('MCP Server Unit Tests', () => {
       const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
-      await initHandler(request);
+      await initHandler(request, { sessionId: 'test-session-id' });
 
       const criticalError = new Error('connection lost');
       if (server.onerror) server.onerror(criticalError);
@@ -141,7 +141,7 @@ describe('MCP Server Unit Tests', () => {
       const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
-      await initHandler(request);
+      await initHandler(request, { sessionId: 'test-session-id' });
 
       const criticalError = new Error('malformed request received');
       if (server.onerror) server.onerror(criticalError);
@@ -168,7 +168,7 @@ describe('MCP Server Unit Tests', () => {
       const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
-      await initHandler(request);
+      await initHandler(request, { sessionId: 'test-session-id' });
 
       // Trigger non-critical error
       const nonCriticalError = new Error('normal error: something went wrong');
@@ -196,7 +196,7 @@ describe('MCP Server Unit Tests', () => {
       const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
-      await initHandler(request);
+      await initHandler(request, { sessionId: 'test-session-id' });
 
       // Trigger with non-Error object (wrap string as Error)
       if (server.onerror) server.onerror(new Error('string error'));
@@ -225,7 +225,7 @@ describe('MCP Server Unit Tests', () => {
       const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
-      await initHandler(request);
+      await initHandler(request, { sessionId: 'test-session-id' });
 
       const criticalError = new Error('protocol_violation: test');
       if (server.onerror) server.onerror(criticalError);
@@ -254,7 +254,7 @@ describe('MCP Server Unit Tests', () => {
       const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
-      await initHandler(request);
+      await initHandler(request, { sessionId: 'test-session-id' });
 
       const nonCriticalError = new Error('normal error');
       if (server.onerror) server.onerror(nonCriticalError);
@@ -285,7 +285,7 @@ describe('MCP Server Unit Tests', () => {
       const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
-      await initHandler(request);
+      await initHandler(request, { sessionId: 'test-session-id' });
 
       // Should not throw when cleanup fails
       const criticalError = new Error('protocol_violation: test');
@@ -328,7 +328,7 @@ describe('MCP Server Unit Tests', () => {
       if (!initHandler) throw new Error('Initialize handler not found');
 
       // Create first session
-      await initHandler(request);
+      await initHandler(request, { sessionId: 'test-session-id' });
 
       // Trigger onclose
       if (server.onclose) server.onclose();
@@ -364,7 +364,7 @@ describe('MCP Server Unit Tests', () => {
       const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
-      await initHandler(request);
+      await initHandler(request, { sessionId: 'test-session-id' });
 
       // Trigger onclose
       if (server.onclose) server.onclose();
@@ -398,7 +398,7 @@ describe('MCP Server Unit Tests', () => {
       const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
-      await initHandler(request);
+      await initHandler(request, { sessionId: 'test-session-id' });
 
       // Trigger onclose and wait for completion
       if (server.onclose) server.onclose();
@@ -443,7 +443,7 @@ describe('MCP Server Unit Tests', () => {
       const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
-      await initHandler(request);
+      await initHandler(request, { sessionId: 'test-session-id' });
 
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
