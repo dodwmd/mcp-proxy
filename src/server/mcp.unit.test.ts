@@ -54,7 +54,7 @@ describe('MCP Server Unit Tests', () => {
       };
 
       // Access private handler via server
-      const handlers = (server as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
@@ -83,7 +83,7 @@ describe('MCP Server Unit Tests', () => {
         },
       };
 
-      const handlers = (server as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
@@ -111,7 +111,7 @@ describe('MCP Server Unit Tests', () => {
         },
       };
 
-      const handlers = (server as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
@@ -138,7 +138,7 @@ describe('MCP Server Unit Tests', () => {
         },
       };
 
-      const handlers = (server as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
@@ -165,7 +165,7 @@ describe('MCP Server Unit Tests', () => {
         },
       };
 
-      const handlers = (server as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
@@ -193,7 +193,7 @@ describe('MCP Server Unit Tests', () => {
         },
       };
 
-      const handlers = (server as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
@@ -222,7 +222,7 @@ describe('MCP Server Unit Tests', () => {
         },
       };
 
-      const handlers = (server as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
@@ -251,7 +251,7 @@ describe('MCP Server Unit Tests', () => {
         },
       };
 
-      const handlers = (server as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
@@ -282,7 +282,7 @@ describe('MCP Server Unit Tests', () => {
         },
       };
 
-      const handlers = (server as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
@@ -323,8 +323,9 @@ describe('MCP Server Unit Tests', () => {
         },
       };
 
-      const handlers = (server as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
+      if (!initHandler) throw new Error('Initialize handler not found');
 
       // Create first session
       await initHandler(request);
@@ -360,7 +361,7 @@ describe('MCP Server Unit Tests', () => {
         },
       };
 
-      const handlers = (server as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
@@ -394,7 +395,7 @@ describe('MCP Server Unit Tests', () => {
         },
       };
 
-      const handlers = (server as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
       if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
@@ -439,8 +440,9 @@ describe('MCP Server Unit Tests', () => {
         },
       };
 
-      const handlers = (server as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
+      const handlers = (server as unknown as { _requestHandlers: Map<string, (req: unknown) => Promise<unknown>> })._requestHandlers;
       const initHandler = handlers.get('initialize');
+      if (!initHandler) throw new Error('Initialize handler not found');
       await initHandler(request);
 
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
