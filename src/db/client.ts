@@ -5,15 +5,13 @@ import * as schema from './schema.js';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-export function createDbClient(dbPath: string): {
+export async function createDbClient(dbPath: string): Promise<{
   db: ReturnType<typeof drizzle<typeof schema>>;
   sqlite: BetterSQLite3Database;
-} {
+}> {
   // Ensure directory exists
   const dir = dirname(dbPath);
-  mkdir(dir, { recursive: true }).catch(() => {
-    // Ignore error if already exists
-  });
+  await mkdir(dir, { recursive: true });
 
   const sqlite = new Database(dbPath);
 
@@ -31,4 +29,4 @@ export function createDbClient(dbPath: string): {
   return { db, sqlite };
 }
 
-export type DbClient = ReturnType<typeof createDbClient>['db'];
+export type DbClient = Awaited<ReturnType<typeof createDbClient>>['db'];

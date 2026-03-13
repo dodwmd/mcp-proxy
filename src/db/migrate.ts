@@ -21,7 +21,7 @@ export async function runMigrations(options: MigrateOptions): Promise<void> {
     migrationsFolder = './drizzle',
   } = options;
 
-  const { db, sqlite } = createDbClient(dbPath);
+  const { db, sqlite } = await createDbClient(dbPath);
 
   try {
     // Check if migrations are needed
