@@ -38,9 +38,9 @@ export function namespacePrompt(alias: string, prompt: PromptDescriptor): Prompt
  * Returns null if name doesn't match expected format.
  */
 export function parseNamespacedName(namespacedName: string): { alias: string; name: string } | null {
-  const match = namespacedName.match(/^([a-z][a-z0-9-]*)__(.+)$/);
+  const match = namespacedName.match(/^([a-z]([a-z0-9-]*[a-z0-9])?)__(.+)$/);
   if (!match) return null;
-  return { alias: match[1], name: match[2] };
+  return { alias: match[1], name: match[3] };
 }
 
 /**
@@ -48,7 +48,7 @@ export function parseNamespacedName(namespacedName: string): { alias: string; na
  * Returns null if URI doesn't match expected format.
  */
 export function parseNamespacedUri(namespacedUri: string): { alias: string; uri: string } | null {
-  const match = namespacedUri.match(/^mcp\+([a-z][a-z0-9-]*):\/\/(.+)$/);
+  const match = namespacedUri.match(/^mcp\+([a-z]([a-z0-9-]*[a-z0-9])?):\/\/(.+)$/);
   if (!match) return null;
-  return { alias: match[1], uri: match[2] };
+  return { alias: match[1], uri: match[3] };
 }

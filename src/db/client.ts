@@ -18,9 +18,9 @@ export async function createDbClient(dbPath: string): Promise<{
   // Set required pragmas in mandatory order (§5.4.3)
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('synchronous = NORMAL');
-  sqlite.pragma('foreign_keys = ON');
   sqlite.pragma('busy_timeout = 5000');
   sqlite.pragma('cache_size = -8000');
+  sqlite.pragma('foreign_keys = ON');
   sqlite.pragma('temp_store = MEMORY');
   sqlite.pragma('mmap_size = 134217728');
 

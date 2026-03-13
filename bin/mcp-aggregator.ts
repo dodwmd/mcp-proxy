@@ -111,9 +111,19 @@ program
       // Graceful shutdown handlers
       const shutdown = async () => {
         console.log('Shutting down gracefully...');
-        await httpServer.close();
-        // Note: Engine doesn't have a close method yet, but sessions will be cleaned up
-        process.exit(0);
+        try {
+          await httpServer.close();
+          // Allow time for MCP server onclose cleanup to complete before process exit
+          // The onclose handler triggers asynchronous session cleanup that must complete
+          // to avoid resource leaks (file descriptors, database connections, etc.)
+          console.log('Waiting for session cleanup to complete...');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          console.log('Shutdown complete');
+          process.exit(process.exitCode ?? 0);
+        } catch (err) {
+          console.error('Error during shutdown:', err);
+          process.exit(1);
+        }
       };
 
       process.on('SIGTERM', shutdown);

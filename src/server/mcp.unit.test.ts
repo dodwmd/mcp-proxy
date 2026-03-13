@@ -408,7 +408,7 @@ describe('MCP Server Unit Tests', () => {
       // Should have logged the error - check for either session cleanup error or general error
       const errorCalls = consoleErrorSpy.mock.calls.map((call) => call.join(' '));
       const hasCleanupError = errorCalls.some((msg) =>
-        msg.includes('Error during onclose') || msg.includes('Closing session')
+        msg.includes('FATAL: Session cleanup failed') || msg.includes('Error during onclose') || msg.includes('Closing session')
       );
       expect(hasCleanupError).toBe(true);
 

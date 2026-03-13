@@ -53,38 +53,49 @@ export function createMcpServer(options: McpHandlerOptions): Server {
   // Track active sessions
   const activeSessions = new Map<string, { sessionId: string; clientInfo: unknown }>();
 
+  // Guard against concurrent cleanup calls
+  let cleanupPromise: Promise<void> | null = null;
+
   /**
    * Shared cleanup logic for closing all active sessions.
    * Used by both onclose and onerror handlers.
+   * Prevents concurrent cleanup by returning the existing promise if cleanup is already in progress.
    */
   const cleanupAllSessions = async (): Promise<void> => {
-    const sessionIds = Array.from(activeSessions.keys());
-    const errors: Array<{ sessionId: string; error: unknown }> = [];
+    // If cleanup is already in progress, return the existing promise
+    if (cleanupPromise) return cleanupPromise;
 
-    for (const sessionId of sessionIds) {
-      try {
-        console.log(`[${sessionId}] Closing session`);
-        await engine.closeSession(sessionId);
-      } catch (error) {
-        console.error(`[${sessionId}] Error closing session:`, error);
-        errors.push({ sessionId, error });
-      } finally {
-        // Always remove from map, even if closeSession fails
-        activeSessions.delete(sessionId);
+    cleanupPromise = (async () => {
+      const sessionIds = Array.from(activeSessions.keys());
+      const errors: Array<{ sessionId: string; error: unknown }> = [];
+
+      for (const sessionId of sessionIds) {
+        try {
+          console.log(`[${sessionId}] Closing session`);
+          await engine.closeSession(sessionId);
+        } catch (error) {
+          console.error(`[${sessionId}] Error closing session:`, error);
+          errors.push({ sessionId, error });
+        } finally {
+          // Always remove from map, even if closeSession fails
+          activeSessions.delete(sessionId);
+        }
       }
-    }
 
-    if (errors.length > 0) {
-      console.error(`Failed to close ${errors.length} session(s) during cleanup`);
+      if (errors.length > 0) {
+        console.error(`Failed to close ${errors.length} session(s) during cleanup`);
 
-      // If all sessions failed, throw to signal catastrophic failure
-      if (errors.length === sessionIds.length && sessionIds.length > 0) {
-        throw new Error(
-          `Complete cleanup failure: all ${errors.length} session(s) failed to close`,
-          { cause: errors }
-        );
+        // If all sessions failed, throw to signal catastrophic failure
+        if (errors.length === sessionIds.length && sessionIds.length > 0) {
+          throw new Error(
+            `Complete cleanup failure: all ${errors.length} session(s) failed to close`,
+            { cause: errors }
+          );
+        }
       }
-    }
+    })();
+
+    return cleanupPromise;
   };
 
   const server = new Server(serverInfo, {
@@ -206,7 +217,8 @@ export function createMcpServer(options: McpHandlerOptions): Server {
   server.onclose = () => {
     console.log('MCP server connection closing, cleaning up sessions...');
     cleanupAllSessions().catch((err) => {
-      console.error('Error during onclose session cleanup:', err);
+      console.error('FATAL: Session cleanup failed during server close:', err);
+      process.exitCode = 1;  // Signal cleanup failure to monitoring
     });
   };
 
@@ -220,7 +232,8 @@ export function createMcpServer(options: McpHandlerOptions): Server {
 
       // Clean up sessions asynchronously without blocking error handler
       cleanupAllSessions().catch((err) => {
-        console.error('Unexpected error during critical error cleanup:', err);
+        console.error('FATAL: Session cleanup failed during critical error handling:', err);
+        process.exitCode = 1;  // Signal cleanup failure to monitoring
       });
     }
   };
