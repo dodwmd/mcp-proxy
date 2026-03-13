@@ -237,9 +237,24 @@ export function createMcpServer(options: McpHandlerOptions): Server {
     }
   });
 
-  // Handle connection close
+  // Handle connection close and errors
   server.onerror = async (error) => {
     console.error('MCP server error:', error);
+
+    // Clean up all sessions on fatal errors
+    // TODO: Implement per-connection cleanup when SDK provides connection lifecycle events
+    for (const [sessionId, _] of activeSessions) {
+      console.log(`[${sessionId}] Cleaning up session due to server error`);
+      try {
+        await engine.closeSession(sessionId);
+      } catch (closeError) {
+        console.error(`[${sessionId}] Failed to close session:`, closeError);
+      }
+      activeSessions.delete(sessionId);
+    }
+
+    // Re-throw to ensure errors are visible and connections are properly terminated
+    throw error;
   };
 
   return server;

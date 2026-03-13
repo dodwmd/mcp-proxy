@@ -73,6 +73,9 @@ program
         process.exit(1);
       }
 
+      // Monotonic counter for JSON-RPC request IDs to prevent collisions
+      let nextId = 1;
+
       // Helper to forward requests to upstream HTTP endpoint
       async function forwardRequest(method: string, params?: unknown): Promise<unknown> {
         const response = await fetch(endpointUrl, {
@@ -82,7 +85,7 @@ program
           },
           body: JSON.stringify({
             jsonrpc: '2.0',
-            id: Date.now(),
+            id: nextId++,
             method,
             params,
           }),
