@@ -1,3 +1,5 @@
+import { warn } from '../utils/logger.js';
+
 /**
  * Resolves environment variable placeholders in strings.
  * Format: ${VAR_NAME} or ${VAR_NAME:-default}
@@ -15,7 +17,7 @@ export function resolveEnvVars(template: string): string {
       return defaultValue;
     }
 
-    console.warn(`[WARN] Environment variable ${varName} not set, using empty string`);
+    warn({ var_name: varName }, 'Environment variable not set, using empty string');
     return '';
   });
 }

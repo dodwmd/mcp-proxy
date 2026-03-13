@@ -3,6 +3,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import type { IUpstreamHandle } from './types.js';
 import type { ResolvedServerConfig } from '../config/types.js';
 import type { ToolDescriptor, ResourceDescriptor, PromptDescriptor } from '../types/common.js';
+import { warn, error } from '../utils/logger.js';
 
 /**
  * Stdio-based upstream connection.
@@ -78,10 +79,10 @@ export class StdioUpstream implements IUpstreamHandle {
     try {
       await this.client?.ping();
       return true;
-    } catch (error) {
-      console.warn(
-        `[${this.alias}] Ping failed:`,
-        error instanceof Error ? error.message : String(error)
+    } catch (err) {
+      warn(
+        { alias: this.alias, error: err },
+        'Ping failed'
       );
       return false;
     }
@@ -100,7 +101,7 @@ export class StdioUpstream implements IUpstreamHandle {
       try {
         await this.client.close();
       } catch (err) {
-        console.error(`[${this.alias}] Error closing client:`, err);
+        error({ alias: this.alias, error: err }, 'Error closing client');
       }
       this.client = null;
     }
