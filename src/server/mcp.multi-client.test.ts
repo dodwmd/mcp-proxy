@@ -378,6 +378,152 @@ describe('MCP Aggregator Multi-Session Isolation (Regression Test for PAP-24)', 
       expect(session2After?.inFlightCalls).toBe(0);
     });
   });
+
+  describe('No Silent Fallback to First Session (Regression Test for PAP-50)', () => {
+    it('should throw explicit error when tools/list is called without sessionId', async () => {
+      // Create session 1 with weather upstream
+      const session1Upstreams = new Map([
+        [
+          'weather',
+          new MockUpstreamHandle('weather', [
+            { name: 'get_forecast', description: 'Weather forecast', inputSchema: {} },
+          ]),
+        ],
+      ]);
+      mockUpstreams.set('session-1', session1Upstreams);
+
+      await engine.createSession({
+        sessionId: 'session-1',
+        clientInfo: { name: 'client-1', version: '1.0.0' },
+        serverConfigs: [serverConfigs[0]],
+      });
+      sessionIds.push('session-1');
+
+      // Attempt to list tools with undefined sessionId
+      // This simulates the transport layer not providing extra.sessionId
+      await expect(engine.listTools(undefined as any)).rejects.toThrow('Session not found: undefined');
+    });
+
+    it('should throw explicit error when tools/call is called without sessionId', async () => {
+      // Create session 1 with weather upstream
+      const session1Upstreams = new Map([
+        [
+          'weather',
+          new MockUpstreamHandle('weather', [
+            { name: 'get_forecast', description: 'Weather forecast', inputSchema: {} },
+          ]),
+        ],
+      ]);
+      mockUpstreams.set('session-1', session1Upstreams);
+
+      await engine.createSession({
+        sessionId: 'session-1',
+        clientInfo: { name: 'client-1', version: '1.0.0' },
+        serverConfigs: [serverConfigs[0]],
+      });
+      sessionIds.push('session-1');
+
+      // Attempt to call tool with undefined sessionId
+      // This simulates the transport layer not providing extra.sessionId
+      await expect(engine.callTool(undefined as any, 'weather__get_forecast', {})).rejects.toThrow(
+        'Session not found: undefined'
+      );
+    });
+
+    it('should not fall back to first session when sessionId is missing from tools/list', async () => {
+      // Create multiple sessions
+      const session1Upstreams = new Map([
+        [
+          'weather',
+          new MockUpstreamHandle('weather', [
+            { name: 'session1_tool', description: 'Session 1 tool', inputSchema: {} },
+          ]),
+        ],
+      ]);
+      mockUpstreams.set('session-1', session1Upstreams);
+
+      const session2Upstreams = new Map([
+        [
+          'weather',
+          new MockUpstreamHandle('weather', [
+            { name: 'session2_tool', description: 'Session 2 tool', inputSchema: {} },
+          ]),
+        ],
+      ]);
+      mockUpstreams.set('session-2', session2Upstreams);
+
+      await engine.createSession({
+        sessionId: 'session-1',
+        clientInfo: { name: 'client-1', version: '1.0.0' },
+        serverConfigs: [serverConfigs[0]],
+      });
+      sessionIds.push('session-1');
+
+      await engine.createSession({
+        sessionId: 'session-2',
+        clientInfo: { name: 'client-2', version: '1.0.0' },
+        serverConfigs: [serverConfigs[0]],
+      });
+      sessionIds.push('session-2');
+
+      // Call without sessionId - should throw, NOT return session-1's tools
+      try {
+        await engine.listTools(undefined as any);
+        // If we get here, the test should fail
+        expect.fail('Expected error to be thrown when sessionId is undefined');
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe('Session not found: undefined');
+
+        // The error message should NOT indicate we got session-1's tools
+        // Previously, this would have silently returned session-1's tool list
+      }
+    });
+
+    it('should not fall back to first session when sessionId is missing from tools/call', async () => {
+      // Create multiple sessions
+      const weather1 = new MockUpstreamHandle('weather', [
+        { name: 'get_forecast', description: 'Forecast', inputSchema: {} },
+      ]);
+      weather1.mockResult = { session: 'session-1', temperature: 72 };
+      mockUpstreams.set('session-1', new Map([['weather', weather1]]));
+
+      const weather2 = new MockUpstreamHandle('weather', [
+        { name: 'get_forecast', description: 'Forecast', inputSchema: {} },
+      ]);
+      weather2.mockResult = { session: 'session-2', temperature: 85 };
+      mockUpstreams.set('session-2', new Map([['weather', weather2]]));
+
+      await engine.createSession({
+        sessionId: 'session-1',
+        clientInfo: { name: 'client-1', version: '1.0.0' },
+        serverConfigs: [serverConfigs[0]],
+      });
+      sessionIds.push('session-1');
+
+      await engine.createSession({
+        sessionId: 'session-2',
+        clientInfo: { name: 'client-2', version: '1.0.0' },
+        serverConfigs: [serverConfigs[0]],
+      });
+      sessionIds.push('session-2');
+
+      // Call tool without sessionId - should throw, NOT execute against session-1
+      try {
+        await engine.callTool(undefined as any, 'weather__get_forecast', {});
+        // If we get here, the test should fail
+        expect.fail('Expected error to be thrown when sessionId is undefined');
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toBe('Session not found: undefined');
+
+        // Verify session-1's upstream was NOT called
+        // Previously, the silent fallback would have executed against session-1
+        expect(weather1.callCount).toBe(0);
+        expect(weather2.callCount).toBe(0);
+      }
+    });
+  });
 });
 
 /**

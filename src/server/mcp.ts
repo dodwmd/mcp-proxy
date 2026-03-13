@@ -146,7 +146,7 @@ export function createMcpServer(options: McpHandlerOptions): Server {
   // Handle tools/list
   server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
     // Get session ID from transport context provided by the SDK
-    const sessionId = extra.sessionId ?? Array.from(activeSessions.values())[0]?.sessionId;
+    const sessionId = extra.sessionId;
     if (!sessionId || !activeSessions.has(sessionId)) {
       throw new Error(`Session not found: ${sessionId ?? 'undefined'}`);
     }
@@ -175,7 +175,7 @@ export function createMcpServer(options: McpHandlerOptions): Server {
     const { name, arguments: args = {} } = request.params;
 
     // Get session ID from transport context provided by the SDK
-    const sessionId = extra.sessionId ?? Array.from(activeSessions.values())[0]?.sessionId;
+    const sessionId = extra.sessionId;
     if (!sessionId || !activeSessions.has(sessionId)) {
       throw new Error(`Session not found: ${sessionId ?? 'undefined'}`);
     }
