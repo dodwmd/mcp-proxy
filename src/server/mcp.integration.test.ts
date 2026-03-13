@@ -624,6 +624,14 @@ class MockUpstreamHandle implements IUpstreamHandle {
     return [];
   }
 
+  async readResource(uri: string): Promise<unknown> {
+    return { contents: [] };
+  }
+
+  async getPrompt(name: string, args?: Record<string, unknown>): Promise<unknown> {
+    return { messages: [] };
+  }
+
   async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
     if (this.closed) {
       throw new Error('Upstream is closed');

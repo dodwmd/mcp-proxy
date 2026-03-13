@@ -181,7 +181,10 @@ export class StdioUpstream implements IUpstreamHandle {
       throw new Error(`Upstream ${this.alias} not initialized`);
     }
 
-    const response = await this.client.getPrompt({ name, arguments: args });
+    const response = await this.client.getPrompt({
+      name,
+      arguments: args as Record<string, string> | undefined,
+    });
     return response;
   }
 }
