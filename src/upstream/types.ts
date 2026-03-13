@@ -52,6 +52,19 @@ export interface IUpstreamHandle {
    * Call a tool on this upstream.
    */
   callTool(name: string, args: Record<string, unknown>): Promise<unknown>;
+
+  /**
+   * Read a resource from this upstream.
+   * @param uri The resource URI (without namespace prefix)
+   */
+  readResource(uri: string): Promise<unknown>;
+
+  /**
+   * Get a prompt from this upstream.
+   * @param name The prompt name (without namespace prefix)
+   * @param args Optional prompt arguments
+   */
+  getPrompt(name: string, args?: Record<string, unknown>): Promise<unknown>;
 }
 
 /**

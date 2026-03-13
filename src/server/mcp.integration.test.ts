@@ -568,6 +568,194 @@ describe('MCP Aggregator Integration (M1)', () => {
       sessionId = null;
     });
   });
+
+  describe('Resource Aggregation (resources/list, resources/read)', () => {
+    beforeEach(async () => {
+      // Initialize session with resources
+      mockUpstreams.set(
+        'docs',
+        new MockUpstreamHandle(
+          'docs',
+          [],
+          [
+            { uri: 'file:///readme.md', name: 'README', mimeType: 'text/markdown' },
+            { uri: 'file:///guide.md', name: 'Guide', mimeType: 'text/markdown' },
+          ]
+        )
+      );
+      mockUpstreams.set(
+        'api',
+        new MockUpstreamHandle(
+          'api',
+          [],
+          [{ uri: 'https://api.example.com/spec', name: 'API Spec', mimeType: 'application/json' }]
+        )
+      );
+
+      // Add resource servers to config
+      const resourceConfigs = [
+        ...serverConfigs,
+        {
+          id: 'docs-1',
+          alias: 'docs',
+          name: 'Docs Server',
+          transport: 'stdio' as const,
+          enabled: true,
+          timeoutMs: 5000,
+          command: 'mock-docs-server',
+        },
+        {
+          id: 'api-1',
+          alias: 'api',
+          name: 'API Server',
+          transport: 'stdio' as const,
+          enabled: true,
+          timeoutMs: 5000,
+          command: 'mock-api-server',
+        },
+      ];
+
+      const session = await engine.createSession({
+        sessionId: 'test-session-resources',
+        clientInfo: { name: 'test-client', version: '1.0.0' },
+        serverConfigs: resourceConfigs,
+      });
+      sessionId = session.id;
+    });
+
+    it('should return aggregated resource list from all upstreams', async () => {
+      const resources = await engine.listResources(sessionId!);
+
+      expect(resources).toBeDefined();
+      expect(resources.length).toBe(3); // 2 from docs + 1 from api
+    });
+
+    it('should prefix resource URIs with mcp+alias:// format', async () => {
+      const resources = await engine.listResources(sessionId!);
+      const uris = resources.map(r => r.uri);
+
+      expect(uris).toContain('mcp+docs://file:///readme.md');
+      expect(uris).toContain('mcp+docs://file:///guide.md');
+      expect(uris).toContain('mcp+api://https://api.example.com/spec');
+    });
+
+    it('should preserve resource names and MIME types', async () => {
+      const resources = await engine.listResources(sessionId!);
+
+      const readme = resources.find(r => r.uri === 'mcp+docs://file:///readme.md');
+      expect(readme).toBeDefined();
+      expect(readme!.name).toBe('README');
+      expect(readme!.mimeType).toBe('text/markdown');
+    });
+
+    it('should read resource by parsing mcp+alias:// URI', async () => {
+      const result = await engine.readResource(sessionId!, 'mcp+docs://file:///readme.md');
+
+      expect(result).toBeDefined();
+      expect(result).toHaveProperty('contents');
+    });
+
+    it('should throw error for invalid URI format', async () => {
+      await expect(engine.readResource(sessionId!, 'invalid-uri')).rejects.toThrow();
+    });
+
+    it('should throw error for non-existent upstream in URI', async () => {
+      await expect(engine.readResource(sessionId!, 'mcp+nonexistent://file:///test')).rejects.toThrow();
+    });
+  });
+
+  describe('Prompt Aggregation (prompts/list, prompts/get)', () => {
+    beforeEach(async () => {
+      // Initialize session with prompts
+      mockUpstreams.set(
+        'templates',
+        new MockUpstreamHandle(
+          'templates',
+          [],
+          [],
+          [
+            { name: 'summarize', description: 'Summarize text', arguments: [] },
+            { name: 'translate', description: 'Translate text', arguments: [{ name: 'lang', required: true }] },
+          ]
+        )
+      );
+      mockUpstreams.set(
+        'helpers',
+        new MockUpstreamHandle('helpers', [], [], [{ name: 'format', description: 'Format output', arguments: [] }])
+      );
+
+      // Add prompt servers to config
+      const promptConfigs = [
+        ...serverConfigs,
+        {
+          id: 'templates-1',
+          alias: 'templates',
+          name: 'Templates Server',
+          transport: 'stdio' as const,
+          enabled: true,
+          timeoutMs: 5000,
+          command: 'mock-templates-server',
+        },
+        {
+          id: 'helpers-1',
+          alias: 'helpers',
+          name: 'Helpers Server',
+          transport: 'stdio' as const,
+          enabled: true,
+          timeoutMs: 5000,
+          command: 'mock-helpers-server',
+        },
+      ];
+
+      const session = await engine.createSession({
+        sessionId: 'test-session-prompts',
+        clientInfo: { name: 'test-client', version: '1.0.0' },
+        serverConfigs: promptConfigs,
+      });
+      sessionId = session.id;
+    });
+
+    it('should return aggregated prompt list from all upstreams', async () => {
+      const prompts = await engine.listPrompts(sessionId!);
+
+      expect(prompts).toBeDefined();
+      expect(prompts.length).toBe(3); // 2 from templates + 1 from helpers
+    });
+
+    it('should prefix prompt names with alias__ format', async () => {
+      const prompts = await engine.listPrompts(sessionId!);
+      const names = prompts.map(p => p.name);
+
+      expect(names).toContain('templates__summarize');
+      expect(names).toContain('templates__translate');
+      expect(names).toContain('helpers__format');
+    });
+
+    it('should preserve prompt descriptions and arguments', async () => {
+      const prompts = await engine.listPrompts(sessionId!);
+
+      const translate = prompts.find(p => p.name === 'templates__translate');
+      expect(translate).toBeDefined();
+      expect(translate!.description).toBe('Translate text');
+      expect(translate!.arguments).toHaveLength(1);
+      expect(translate!.arguments![0].name).toBe('lang');
+    });
+
+    it('should get prompt by parsing alias__ name prefix', async () => {
+      const result = await engine.getPrompt(sessionId!, 'templates__summarize');
+
+      expect(result).toBeDefined();
+      expect(result).toHaveProperty('messages');
+    });
+
+    it('should throw error for invalid prompt name format', async () => {
+      await expect(engine.getPrompt(sessionId!, 'invalid-name')).rejects.toThrow();
+    });
+
+    it('should throw error for non-existent upstream in name', async () => {
+      await expect(engine.getPrompt(sessionId!, 'nonexistent__prompt')).rejects.toThrow();
+    });
+  });
 });
 
 /**
@@ -579,6 +767,8 @@ class MockUpstreamHandle implements IUpstreamHandle {
   readonly sessionId: string = 'test-session';
 
   private tools: ToolDescriptor[];
+  private resources: ResourceDescriptor[];
+  private prompts: PromptDescriptor[];
   public callCount = 0;
   public lastCall: { name: string; args: Record<string, unknown> } | null = null;
   public closed = false;
@@ -586,10 +776,17 @@ class MockUpstreamHandle implements IUpstreamHandle {
   public mockError: Error | null = null;
   public onCallStart?: () => void;
 
-  constructor(alias: string, tools: ToolDescriptor[]) {
+  constructor(
+    alias: string,
+    tools: ToolDescriptor[],
+    resources: ResourceDescriptor[] = [],
+    prompts: PromptDescriptor[] = []
+  ) {
     this.serverId = `${alias}-server-id`;
     this.alias = alias;
     this.tools = tools;
+    this.resources = resources;
+    this.prompts = prompts;
   }
 
   async init(): Promise<void> {
@@ -617,11 +814,42 @@ class MockUpstreamHandle implements IUpstreamHandle {
   }
 
   async listResources(): Promise<ResourceDescriptor[]> {
-    return [];
+    if (this.closed) {
+      throw new Error('Upstream is closed');
+    }
+    return this.resources;
   }
 
   async listPrompts(): Promise<PromptDescriptor[]> {
-    return [];
+    if (this.closed) {
+      throw new Error('Upstream is closed');
+    }
+    return this.prompts;
+  }
+
+  async readResource(uri: string): Promise<unknown> {
+    if (this.closed) {
+      throw new Error('Upstream is closed');
+    }
+    const resource = this.resources.find(r => r.uri === uri);
+    if (!resource) {
+      throw new Error(`Resource not found: ${uri}`);
+    }
+    return { contents: [{ uri, mimeType: 'text/plain', text: `Content of ${uri}` }] };
+  }
+
+  async getPrompt(name: string, args?: Record<string, unknown>): Promise<unknown> {
+    if (this.closed) {
+      throw new Error('Upstream is closed');
+    }
+    const prompt = this.prompts.find(p => p.name === name);
+    if (!prompt) {
+      throw new Error(`Prompt not found: ${name}`);
+    }
+    return {
+      messages: [{ role: 'user', content: { type: 'text', text: `Prompt: ${name}` } }],
+      _meta: args,
+    };
   }
 
   async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {

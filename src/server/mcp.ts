@@ -6,6 +6,10 @@ import {
   InitializeRequestSchema,
   ListToolsRequestSchema,
   CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { IAggregatorEngine } from '../aggregator/types.js';
 import type { ResolvedServerConfig } from '../config/types.js';
@@ -68,6 +72,8 @@ export function createMcpServer(options: McpHandlerOptions): Server {
       protocolVersion: '2024-11-05',
       capabilities: {
         tools: {},
+        resources: {},
+        prompts: {},
       },
       serverInfo,
     };
@@ -137,9 +143,118 @@ export function createMcpServer(options: McpHandlerOptions): Server {
     }
   });
 
-  // Handle connection close
+  // Handle resources/list
+  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    const sessionEntry = Array.from(activeSessions.values())[0];
+    if (!sessionEntry) {
+      throw new Error('No active session found');
+    }
+
+    const { sessionId } = sessionEntry;
+    console.log(`[${sessionId}] Listing resources`);
+
+    try {
+      const resources = await engine.listResources(sessionId);
+      console.log(`[${sessionId}] Returning ${resources.length} resources`);
+
+      return {
+        resources,
+      };
+    } catch (error) {
+      console.error(`[${sessionId}] Failed to list resources:`, error);
+      throw new Error(`Failed to list resources: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+
+  // Handle resources/read
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const { uri } = request.params;
+
+    const sessionEntry = Array.from(activeSessions.values())[0];
+    if (!sessionEntry) {
+      throw new Error('No active session found');
+    }
+
+    const { sessionId } = sessionEntry;
+    console.log(`[${sessionId}] Reading resource: ${uri}`);
+
+    try {
+      const result = await engine.readResource(sessionId, uri);
+      console.log(`[${sessionId}] Resource read successful: ${uri}`);
+
+      // Return result as-is from upstream (SDK types it properly)
+      return result as any;
+    } catch (error) {
+      console.error(`[${sessionId}] Resource read failed: ${uri}`, error);
+      throw new Error(`Resource read failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+
+  // Handle prompts/list
+  server.setRequestHandler(ListPromptsRequestSchema, async () => {
+    const sessionEntry = Array.from(activeSessions.values())[0];
+    if (!sessionEntry) {
+      throw new Error('No active session found');
+    }
+
+    const { sessionId } = sessionEntry;
+    console.log(`[${sessionId}] Listing prompts`);
+
+    try {
+      const prompts = await engine.listPrompts(sessionId);
+      console.log(`[${sessionId}] Returning ${prompts.length} prompts`);
+
+      return {
+        prompts,
+      };
+    } catch (error) {
+      console.error(`[${sessionId}] Failed to list prompts:`, error);
+      throw new Error(`Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+
+  // Handle prompts/get
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+
+    const sessionEntry = Array.from(activeSessions.values())[0];
+    if (!sessionEntry) {
+      throw new Error('No active session found');
+    }
+
+    const { sessionId } = sessionEntry;
+    console.log(`[${sessionId}] Getting prompt: ${name}`);
+
+    try {
+      const result = await engine.getPrompt(sessionId, name, args as Record<string, unknown> | undefined);
+      console.log(`[${sessionId}] Prompt retrieval successful: ${name}`);
+
+      // Return result as-is from upstream (SDK types it properly)
+      return result as any;
+    } catch (error) {
+      console.error(`[${sessionId}] Prompt retrieval failed: ${name}`, error);
+      throw new Error(`Prompt retrieval failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+
+  // Handle connection close and errors
   server.onerror = async (error) => {
     console.error('MCP server error:', error);
+
+    // Clean up all sessions on fatal errors
+    // TODO: Implement per-connection cleanup when SDK provides connection lifecycle events
+    for (const [sessionId, _] of activeSessions) {
+      console.log(`[${sessionId}] Cleaning up session due to server error`);
+      try {
+        await engine.closeSession(sessionId);
+      } catch (closeError) {
+        console.error(`[${sessionId}] Failed to close session:`, closeError);
+      }
+      activeSessions.delete(sessionId);
+    }
+
+    // Re-throw to ensure errors are visible and connections are properly terminated
+    throw error;
   };
 
   return server;

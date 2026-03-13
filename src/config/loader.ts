@@ -11,6 +11,7 @@ import type {
   IConfigLoader,
 } from './types.js';
 import { ConfigValidationError } from './types.js';
+import { error } from '../utils/logger.js';
 
 interface RawYamlConfig {
   port?: number;
@@ -106,7 +107,7 @@ export class YamlConfigLoader implements IConfigLoader {
           onChange(next, prev);
           prev = next;
         } catch (err) {
-          console.error('[ERROR] Config reload failed:', err);
+          error({ error: err }, 'Config reload failed');
         }
       }
     });
