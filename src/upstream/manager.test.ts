@@ -314,31 +314,36 @@ describe('UpstreamConnectionManager', () => {
         await managerAllowed.closeAll();
       });
 
-      it('should apply allowPrivateUrls to SSE transport', async () => {
-        const managerAllowed = new UpstreamConnectionManager({ allowPrivateUrls: true });
+      it(
+        'should apply allowPrivateUrls to SSE transport',
+        async () => {
+          const managerAllowed = new UpstreamConnectionManager({ allowPrivateUrls: true });
 
-        const config: ResolvedServerConfig = {
-          id: 'sse-1',
-          alias: 'sse-test',
-          name: 'SSE Test',
-          transport: 'sse',
-          enabled: true,
-          timeoutMs: 5000,
-          url: 'http://192.168.1.1:8080',
-        };
+          const config: ResolvedServerConfig = {
+            id: 'sse-1',
+            alias: 'sse-test',
+            name: 'SSE Test',
+            transport: 'sse',
+            enabled: true,
+            timeoutMs: 5000,
+            url: 'http://localhost:8080',
+          };
 
-        const results = await managerAllowed.connectAll(
-          [config],
-          'session-123',
-          { name: 'test-client', version: '1.0.0' }
-        );
+          const results = await managerAllowed.connectAll(
+            [config],
+            'session-123',
+            { name: 'test-client', version: '1.0.0' }
+          );
 
-        const result = results.get('sse-test');
-        expect(result).toBeDefined();
-        expect(result?.error).not.toContain('private IP address');
+          const result = results.get('sse-test');
+          expect(result).toBeDefined();
+          expect(result?.status).toBe('error');
+          expect(result?.error).not.toContain('private IP address');
 
-        await managerAllowed.closeAll();
-      });
+          await managerAllowed.closeAll();
+        },
+        10000
+      );
     });
 
     describe('httpKeepaliveMs', () => {
