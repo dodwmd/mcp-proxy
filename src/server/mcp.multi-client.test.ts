@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { AggregatorEngine } from '../aggregator/engine.js';
+import type { CreateSessionParams } from '../aggregator/types.js';
 import type { ResolvedServerConfig } from '../config/types.js';
 import type { IUpstreamHandle } from '../upstream/types.js';
 import type { ToolDescriptor, ResourceDescriptor, PromptDescriptor } from '../types/common.js';
+import type { Client } from '@modelcontextprotocol/sdk/client/index.js';
 
 /**
  * Regression test for multi-client session management bug fix (PAP-24)
@@ -401,7 +403,7 @@ describe('MCP Aggregator Multi-Session Isolation (Regression Test for PAP-24)', 
 
       // Attempt to list tools with undefined sessionId
       // This simulates the transport layer not providing extra.sessionId
-      await expect(engine.listTools(undefined as any)).rejects.toThrow('Session not found: undefined');
+      await expect(engine.listTools(undefined as unknown as string)).rejects.toThrow('Session not found: undefined');
     });
 
     it('should throw explicit error when tools/call is called without sessionId', async () => {
@@ -425,7 +427,7 @@ describe('MCP Aggregator Multi-Session Isolation (Regression Test for PAP-24)', 
 
       // Attempt to call tool with undefined sessionId
       // This simulates the transport layer not providing extra.sessionId
-      await expect(engine.callTool(undefined as any, 'weather__get_forecast', {})).rejects.toThrow(
+      await expect(engine.callTool(undefined as unknown as string, 'weather__get_forecast', {})).rejects.toThrow(
         'Session not found: undefined'
       );
     });
@@ -468,7 +470,7 @@ describe('MCP Aggregator Multi-Session Isolation (Regression Test for PAP-24)', 
 
       // Call without sessionId - should throw, NOT return session-1's tools
       try {
-        await engine.listTools(undefined as any);
+        await engine.listTools(undefined as unknown as string);
         // If we get here, the test should fail
         expect.fail('Expected error to be thrown when sessionId is undefined');
       } catch (error) {
@@ -510,7 +512,7 @@ describe('MCP Aggregator Multi-Session Isolation (Regression Test for PAP-24)', 
 
       // Call tool without sessionId - should throw, NOT execute against session-1
       try {
-        await engine.callTool(undefined as any, 'weather__get_forecast', {});
+        await engine.callTool(undefined as unknown as string, 'weather__get_forecast', {});
         // If we get here, the test should fail
         expect.fail('Expected error to be thrown when sessionId is undefined');
       } catch (error) {
@@ -560,8 +562,8 @@ class MockUpstreamHandle implements IUpstreamHandle {
     this.closed = true;
   }
 
-  getClient(): any {
-    return null;
+  getClient(): Client {
+    return null as unknown as Client;
   }
 
   async listTools(): Promise<ToolDescriptor[]> {
@@ -611,7 +613,15 @@ class MockAggregatorEngine extends AggregatorEngine {
     this.mockUpstreams = mockUpstreams;
   }
 
-  override async createSession(params: any): Promise<any> {
+  override async createSession(params: CreateSessionParams): Promise<{
+    id: string;
+    state: 'active';
+    connectedAt: Date;
+    upstreamHandles: Map<string, IUpstreamHandle>;
+    upstreamStatuses: Map<string, 'connected' | 'error' | 'skipped'>;
+    toolCount: number;
+    inFlightCalls: number;
+  }> {
     const { sessionId, serverConfigs } = params;
 
     // Get session-specific mock upstreams
@@ -646,6 +656,7 @@ class MockAggregatorEngine extends AggregatorEngine {
       inFlightCalls: 0,
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (this as any).sessions.set(sessionId, session);
 
     return {

@@ -76,7 +76,7 @@ export function createMcpServer(options: McpHandlerOptions): Server {
   });
 
   // Handle tools/list
-  server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
+  server.setRequestHandler(ListToolsRequestSchema, async (_request, extra) => {
     // Get session ID from transport context provided by the SDK
     const sessionId = extra.sessionId;
     if (!sessionId || !activeSessions.has(sessionId)) {
