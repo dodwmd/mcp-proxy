@@ -3,6 +3,7 @@ import type { Express, Request, Response } from 'express';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import type { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { createApiRouter } from '../api/index.js';
 
 export interface HttpServerOptions {
   port: number;
@@ -16,7 +17,8 @@ export interface HttpServerOptions {
  *
  * The server provides:
  * - POST /mcp - MCP Streamable HTTP endpoint
- * - GET /health - Health check endpoint
+ * - GET /health - Health check endpoint (legacy)
+ * - /api/* - REST API endpoints (M3)
  */
 export async function createHttpServer(options: HttpServerOptions): Promise<Express> {
   const { bind, mcpServer, transport } = options;
@@ -24,7 +26,7 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Expr
   // Create Express app with MCP defaults
   const app = createMcpExpressApp({ host: bind });
 
-  // Health check endpoint
+  // Health check endpoint (legacy)
   app.get('/health', (_req: Request, res: Response) => {
     res.json({
       status: 'ok',
@@ -32,6 +34,10 @@ export async function createHttpServer(options: HttpServerOptions): Promise<Expr
       timestamp: new Date().toISOString(),
     });
   });
+
+  // Mount REST API router at /api (M3)
+  const apiRouter = createApiRouter();
+  app.use('/api', apiRouter);
 
   // MCP endpoint - handles all MCP protocol requests
   app.post('/mcp', async (req: Request, res: Response) => {
@@ -93,6 +99,7 @@ export async function startHttpServer(
     const server = app.listen(port, bind, () => {
       console.log(`HTTP server listening on http://${bind}:${port}`);
       console.log(`MCP endpoint: http://${bind}:${port}/mcp`);
+      console.log(`REST API: http://${bind}:${port}/api/status`);
 
       resolve({
         close: async () => {

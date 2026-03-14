@@ -15,6 +15,8 @@ import {
 import * as path from 'node:path';
 import * as os from 'node:os';
 
+const DEFAULT_HOME = path.join(os.homedir(), '.mcp-aggregator');
+
 const program = new Command();
 
 program
@@ -28,9 +30,7 @@ program
   .description('Start the MCP aggregator server')
   .option('--port <port>', 'HTTP port', '4000')
   .option('--bind <address>', 'Bind address', '127.0.0.1')
-  .option('--home <path>', 'Home directory for config and database', () => {
-    return path.join(os.homedir(), '.mcp-aggregator');
-  })
+  .option('--home <path>', 'Home directory for config and database', DEFAULT_HOME)
   .option('--public-url <url>', 'Public URL for the server', 'http://localhost:4000')
   .action(async (options) => {
     try {
@@ -63,8 +63,11 @@ program
       // Sync config to database
       await store.syncConfig(config);
 
-      // Initialize aggregator engine
-      const engine = new AggregatorEngine();
+      // Initialize aggregator engine with runtime config
+      const engine = new AggregatorEngine({
+        allowPrivateUrls: config.runtime.allowPrivateUrls,
+        httpKeepaliveMs: config.runtime.httpKeepaliveMs,
+      });
 
       // Get resolved server configs from the config store
       // For M1, we use all servers from the config
@@ -131,9 +134,7 @@ program
 program
   .command('validate')
   .description('Validate configuration file')
-  .option('--home <path>', 'Home directory for config', () => {
-    return path.join(os.homedir(), '.mcp-aggregator');
-  })
+  .option('--home <path>', 'Home directory for config', DEFAULT_HOME)
   .action(async (options) => {
     try {
       const homePath = options.home;
@@ -161,9 +162,7 @@ program
 program
   .command('migrate')
   .description('Run database migrations')
-  .option('--home <path>', 'Home directory for database', () => {
-    return path.join(os.homedir(), '.mcp-aggregator');
-  })
+  .option('--home <path>', 'Home directory for database', DEFAULT_HOME)
   .action(async (options) => {
     try {
       const homePath = options.home;
