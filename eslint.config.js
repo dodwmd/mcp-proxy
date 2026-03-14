@@ -32,6 +32,24 @@ export default [
     },
   },
   {
+    files: ['bin/**/*.ts'],
+    languageOptions: {
+      parser: tsparser,
+      parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: 'module',
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tseslint,
+    },
+    rules: {
+      ...tseslint.configs.recommended.rules,
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-explicit-any': 'warn',
+    },
+  },
+  {
     files: ['*.ts', '*.config.ts'],
     languageOptions: {
       parser: tsparser,

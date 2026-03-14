@@ -3,12 +3,17 @@ import { Command } from 'commander';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
+interface CLIOptions {
+  home?: string;
+  value?: string;
+}
+
 describe('CLI Default Path Handling', () => {
   it('should use correct default value for --home option (not a parser function)', () => {
     // Regression test for PAP-52: Commander.js was treating arrow function as parser instead of default value
     const DEFAULT_HOME = path.join(os.homedir(), '.mcp-aggregator');
 
-    let capturedOptions: any;
+    let capturedOptions: CLIOptions = {};
     const program = new Command();
     program
       .exitOverride() // Prevent process.exit in tests
@@ -30,7 +35,7 @@ describe('CLI Default Path Handling', () => {
     const DEFAULT_HOME = path.join(os.homedir(), '.mcp-aggregator');
     const CUSTOM_HOME = '/custom/path';
 
-    let capturedOptions: any;
+    let capturedOptions: CLIOptions = {};
     const program = new Command();
     program
       .exitOverride() // Prevent process.exit in tests
@@ -51,7 +56,7 @@ describe('CLI Default Path Handling', () => {
     // This test verifies the bug is fixed: passing a function as 3rd param makes it a parser, not a default
 
     // WRONG WAY (the bug): function as 3rd parameter is treated as a parser
-    let buggyOptions: any;
+    let buggyOptions: CLIOptions = {};
     const buggyProgram = new Command();
     buggyProgram
       .exitOverride() // Prevent process.exit in tests
@@ -71,7 +76,7 @@ describe('CLI Default Path Handling', () => {
     expect(buggyOptions.value).toBeUndefined();
 
     // CORRECT WAY: string as 3rd parameter is the default value
-    let fixedOptions: any;
+    let fixedOptions: CLIOptions = {};
     const fixedProgram = new Command();
     fixedProgram
       .exitOverride() // Prevent process.exit in tests
