@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { YamlConfigLoader } from './loader.js';
 import { ConfigValidationError } from './types.js';
 import * as fs from 'node:fs';
@@ -211,5 +211,129 @@ agents:
     expect(config.agents[0].id).toBe('agent-123');
     expect(config.agents[0].guildSlugs).toEqual(['engineering']);
     expect(config.agents[0].directServerAliases).toEqual(['s1']);
+  });
+
+  describe('watch() error handling', () => {
+    it('should call onError callback when config reload fails', async () => {
+      // Regression test for PAP-51: Config reload failures should be propagated via onError callback
+      const yamlContent = `
+servers:
+  - alias: test
+    name: Test
+    transport: stdio
+    command: node
+`;
+      fs.writeFileSync(configPath, yamlContent);
+
+      const loader = new YamlConfigLoader(configPath);
+
+      let errorCaught: Error | null = null;
+      let changeCount = 0;
+
+      const stopWatching = loader.watch(
+        (next, prev) => {
+          changeCount++;
+        },
+        (error) => {
+          errorCaught = error;
+        }
+      );
+
+      // Wait a bit for watcher to be ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Write invalid YAML to trigger reload error
+      fs.writeFileSync(configPath, 'invalid: yaml: content: [unclosed');
+
+      // Wait for file watcher to trigger
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      stopWatching();
+
+      // Should have called onError with the error
+      expect(errorCaught).not.toBeNull();
+      expect(errorCaught).toBeInstanceOf(Error);
+      // Should not have called onChange (reload failed)
+      expect(changeCount).toBe(0);
+    });
+
+    it('should log to console when onError not provided (backward compatibility)', async () => {
+      const yamlContent = `
+servers:
+  - alias: test
+    name: Test
+    transport: stdio
+    command: node
+`;
+      fs.writeFileSync(configPath, yamlContent);
+
+      const loader = new YamlConfigLoader(configPath);
+
+      let changeCount = 0;
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const stopWatching = loader.watch((next, prev) => {
+        changeCount++;
+      });
+
+      // Wait a bit for watcher to be ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Write invalid YAML to trigger reload error
+      fs.writeFileSync(configPath, 'invalid: [unclosed');
+
+      // Wait for file watcher to trigger
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      stopWatching();
+
+      // Should have logged error to console (backward compatibility)
+      expect(consoleErrorSpy).toHaveBeenCalled();
+      expect(consoleErrorSpy.mock.calls[0][0]).toContain('Config reload failed');
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('should preserve previous config when reload fails', async () => {
+      // Regression test for PAP-51: When reload fails, previous valid config should remain accessible
+      const validYaml = `
+servers:
+  - alias: test
+    name: Test Server
+    transport: stdio
+    command: node
+`;
+      fs.writeFileSync(configPath, validYaml);
+
+      const loader = new YamlConfigLoader(configPath);
+
+      let lastSuccessfulConfig: any = null;
+      let errorsCaught: Error[] = [];
+
+      const stopWatching = loader.watch(
+        (next, prev) => {
+          lastSuccessfulConfig = next;
+        },
+        (error) => {
+          errorsCaught.push(error);
+        }
+      );
+
+      // Wait for watcher to be ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Write invalid config - should trigger onError, not onChange
+      fs.writeFileSync(configPath, 'servers: [invalid yaml structure');
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      stopWatching();
+
+      // Error callback should have been called
+      expect(errorsCaught.length).toBeGreaterThanOrEqual(1);
+      expect(errorsCaught[0]).toBeInstanceOf(Error);
+
+      // No successful reload should have happened (lastSuccessfulConfig stays null since we only wrote invalid config)
+      expect(lastSuccessfulConfig).toBeNull();
+    });
   });
 });
